@@ -1,408 +1,711 @@
-import React, { useState } from 'react';
+import { useState, useRef, useEffect } from "react";
 
-export default function App() {
-  const [activeTab, setActiveTab] = useState('feed');
-  
-  // State สำหรับโปรไฟล์ผู้ใช้ปัจจุบัน
-  const [username, setUsername] = useState('คุณ (ผู้ใช้)');
-  const [isLoggedIn, setIsLoggedIn] = useState(true);
+// ── Design Tokens ─────────────────────────────────────────
+const C = {
+  brand:   "#8B7CF6",
+  brand2:  "#C084FC",
+  grad:    "linear-gradient(135deg,#8B7CF6 0%,#C084FC 100%)",
+  gradSoft:"linear-gradient(135deg,#EDE9FE 0%,#FAE8FF 100%)",
+  gradCard:"linear-gradient(160deg,#F5F3FF 0%,#FDF4FF 100%)",
+  surface: "#FFFFFF",
+  bg:      "#F8F7FF",
+  border:  "#EDE9FE",
+  text:    "#1E1B2E",
+  sub:     "#7C7B8A",
+  muted:   "#B8B6C8",
+  green:   "#10B981",
+  red:     "#F43F5E",
+  redL:    "#FFF1F2",
+};
 
-  // State สำหรับฟีดโพสต์
-  const [posts, setPosts] = useState([
-    {
-      id: 1,
-      initials: 'NK',
-      name: 'หนูนก',
-      time: '2 นาทีที่แล้ว',
-      mood: '+ เหงา 🌙',
-      privacy: 'สาธารณะ 🌐',
-      content: 'วันนี้เหงามากเลย ใครว่างคุยด้วยบ้าง 🌙',
-      mediaUrl: '',
-      mediaType: '',
-      likes: 12,
-      comments: 1,
-      liked: false
-    },
-    {
-      id: 2,
-      initials: 'BR',
-      name: 'ไบรท์',
-      time: '1 ชม.',
-      mood: '+ สงบ ✨',
-      privacy: 'เพื่อนเท่านั้น 👥',
-      content: 'อากาศดีมากวันนี้ 🌼 ออกไปนั่งข้างนอกสักพัก',
-      mediaUrl: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600&auto=format&fit=crop&q=80',
-      mediaType: 'image',
-      likes: 16,
-      comments: 7,
-      liked: false
-    }
-  ]);
+const FRIENDS=[
+  {id:1,name:"หนูนก",init:"NK",bg:"#D1FAE5",tc:"#065F46",online:true, mood:"เหงา"},
+  {id:2,name:"อาร์ม", init:"AR",bg:"#DBEAFE",tc:"#1E40AF",online:true, mood:"สนุก"},
+  {id:3,name:"มิ้นท์",init:"MT",bg:"#FCE7F3",tc:"#831843",online:false,mood:"ง่วง"},
+  {id:4,name:"ไบรท์",init:"BR",bg:"#FEF3C7",tc:"#78350F",online:true, mood:"สงบ"},
+  {id:5,name:"แพม",  init:"PM",bg:"#D1FAE5",tc:"#064E3B",online:true, mood:"สบายดี"},
+];
+const MOODS=["สบายดี 😊","เหงา 🌙","สนุก 🎉","เครียด 😮‍💨","ง่วง 😴","สงบ ✨","ตื่นเต้น ⚡","โดดเดี่ยว 🫥"];
+const PV_LBL={public:"สาธารณะ",friends:"เพื่อนเท่านั้น",only_me:"ฉันเท่านั้น"};
+const PV_ICO={public:"🌐",friends:"👥",only_me:"🔒"};
+const AUTO_REPLIES=["อ่อ จริงๆ เหรอ 😊","รู้สึกแบบเดียวกันเลย 💜","ฮ่าๆ น่ารักมาก 🥰","แล้วยังไงต่อล่ะ?","ใช่เลย! เห็นด้วย 100%","555 โอเคมาก","เดี๋ยวเล่าให้ฟังนะ 🎵"];
 
-  const [newPostText, setNewPostText] = useState('');
-  const [newMediaUrl, setNewMediaUrl] = useState('');
-  const [newMediaType, setNewMediaType] = useState(''); 
-  const [postPrivacy, setPostPrivacy] = useState('สาธารณะ 🌐');
-  const [showPrivacyDropdown, setShowPrivacyDropdown] = useState(false);
+const PLAYLIST=[
+  {id:1,title:"Lofi Chill Beats",artist:"Lofi Girl",emoji:"🌙",duration:"3:42",color:"#8B7CF6"},
+  {id:2,title:"Late Night Drive",artist:"Neon Dreams",emoji:"🌃",duration:"4:15",color:"#C084FC"},
+  {id:3,title:"Rainy Afternoon",artist:"Café Sounds",emoji:"☕",duration:"3:58",color:"#60A5FA"},
+  {id:4,title:"Golden Hour",artist:"Indie Vibes",emoji:"🌅",duration:"4:30",color:"#F59E0B"},
+  {id:5,title:"Midnight Feels",artist:"ChillWave",emoji:"🎸",duration:"5:01",color:"#10B981"},
+  {id:6,title:"Sunday Morning",artist:"Acoustic Soul",emoji:"🌸",duration:"3:22",color:"#F43F5E"},
+];
+const VOICE_ROOMS=[
+  {id:1,name:"นั่งเงียบๆด้วยกัน",users:["NK","BR","PM"],count:3,vibe:"🌙"},
+  {id:2,name:"คืนนี้เหงาใครมาก", users:["AR","MT","NK","BR","PM"],count:5,vibe:"💜"},
+  {id:3,name:"คุยเล่นก่อนนอน",   users:["AR","PM"],count:2,vibe:"☕"},
+];
+const INIT_POSTS=[
+  {id:1,author:"หนูนก",init:"NK",bg:"#D1FAE5",tc:"#065F46",time:"2 นาทีที่แล้ว",content:"วันนี้เหงามากเลย ใครว่างคุยด้วยบ้าง 🌙",mood:"เหงา 🌙",privacy:"public",likes:12,liked:false,images:[],
+   comments:[{id:1,author:"แพม",init:"PM",bg:"#D1FAE5",tc:"#064E3B",text:"มาคุยด้วยได้เลยนะ 🌸",time:"1น."}]},
+  {id:2,author:"ไบรท์",init:"BR",bg:"#FEF3C7",tc:"#78350F",time:"1 ชม.",content:"อากาศดีมากวันนี้ ☀️ ออกไปนั่งข้างนอกสักพัก",mood:"สงบ ✨",privacy:"friends",likes:24,liked:true,
+   images:["https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&q=80"],comments:[]},
+  {id:3,author:"มิ้นท์",init:"MT",bg:"#FCE7F3",tc:"#831843",time:"3 ชม.",content:"ใครชอบดูซีรีส์เกาหลีบ้าง 📺 แนะนำเรื่องหน่อยนะ",mood:"สนุก 🎉",privacy:"public",likes:8,liked:false,images:[],comments:[]},
+  {id:4,author:"แพม",init:"PM",bg:"#D1FAE5",tc:"#064E3B",time:"5 ชม.",content:"กาแฟสักแก้วในวันหยุด ☕ ชีวิตดี",mood:"สบายดี 😊",privacy:"public",likes:31,liked:false,
+   images:["https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=600&q=80"],comments:[]},
+];
+const INIT_CHATS={
+  1:[{id:1,from:"them",text:"หวัดดีจ้า วันนี้เป็นยังไงบ้าง 😊",type:"text"}],
+  2:[{id:1,from:"them",text:"เฮ้ มีอะไรเล่าให้ฟังมั้ย 👂",type:"text"}],
+  3:[{id:1,from:"them",text:"ง่วงมากเลยวันนี้ 😴",type:"text"}],
+  4:[{id:1,from:"them",text:"อยู่บ้านคนเดียวเหงาๆ เลยแวะมาคุย",type:"text"}],
+  5:[{id:1,from:"them",text:"ใครอยากคุยบ้างมั้ย! 🙋",type:"text"}],
+};
 
-  // State สำหรับห้องแชท
-  const [chatMessages, setChatMessages] = useState([
-    { sender: 'หนูนก', text: 'สวัสดีครับ ทุกคนทำอะไรกันอยู่บ้าง?' },
-    { sender: 'คุณ', text: 'กำลังทดสอบระบบห้องเสียงและฟีเจอร์โปรใน Warmly V2 ครับ' }
-  ]);
-  const [inputMessage, setInputMessage] = useState('');
+// ── Shared UI ─────────────────────────────────────────────
+function Av({init,bg,tc,size=40,online,grad}){
+  return(
+    <div style={{position:"relative",flexShrink:0}}>
+      <div style={{width:size,height:size,borderRadius:"50%",background:grad||bg||"#EDE9FE",color:tc||C.brand,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.33,fontWeight:700,boxShadow:grad?"0 2px 8px rgba(139,124,246,.25)":"none"}}>
+        {init}
+      </div>
+      {online&&<div style={{position:"absolute",bottom:1,right:1,width:Math.max(8,size*.2),height:Math.max(8,size*.2),borderRadius:"50%",background:C.green,border:"2px solid #fff"}}/>}
+    </div>
+  );
+}
 
-  // State สำหรับห้องเสียง (Host Controls)
-  const [isHost, setIsHost] = useState(true);
-  const [voiceUsers, setVoiceUsers] = useState([
-    { id: 1, name: 'คุณ (Host)', isMuted: false },
-    { id: 2, name: 'หนูนก', isMuted: false },
-    { id: 3, name: 'ไบรท์', isMuted: true },
-    { id: 4, name: 'สมชาย', isMuted: false }
-  ]);
-  const [youtubeUrl, setYoutubeUrl] = useState('');
-  const [currentVideoId, setCurrentVideoId] = useState('5qap5aO4i9A');
+function Pill({children,bg,tc,onClick,active}){
+  return(
+    <span onClick={onClick} style={{display:"inline-flex",alignItems:"center",gap:4,background:bg||(active?C.brand:"transparent"),color:tc||(active?"#fff":C.sub),borderRadius:20,padding:"4px 11px",fontSize:12,fontWeight:500,cursor:onClick?"pointer":"default",border:"1px solid "+(active?C.brand:C.border),transition:"all .15s"}}>
+      {children}
+    </span>
+  );
+}
 
-  // ฟังก์ชันสร้างโพสต์ใหม่
-  const handleCreatePost = (e) => {
-    e.preventDefault();
-    if (!newPostText.trim() && !newMediaUrl.trim()) return;
-    
-    const newPost = {
-      id: Date.now(),
-      initials: username.substring(0, 2).toUpperCase(),
-      name: username,
-      time: 'เมื่อสักครู่',
-      mood: '+ สดใส ☀️',
-      privacy: postPrivacy,
-      content: newPostText,
-      mediaUrl: newMediaUrl,
-      mediaType: newMediaType,
-      likes: 0,
-      comments: 0,
-      liked: false
-    };
-    
-    setPosts([newPost, ...posts]);
-    setNewPostText('');
-    setNewMediaUrl('');
-    setNewMediaType('');
-  };
+function Card({children,style,gradient}){
+  return(
+    <div style={{background:gradient?C.gradCard:C.surface,border:"1px solid "+C.border,borderRadius:18,overflow:"hidden",boxShadow:"0 2px 12px rgba(139,124,246,.06)",...style}}>
+      {children}
+    </div>
+  );
+}
 
-  const handleLike = (id) => {
-    setPosts(posts.map(post => {
-      if (post.id === id) {
-        return {
-          ...post,
-          likes: post.liked ? post.likes - 1 : post.likes + 1,
-          liked: !post.liked
-        };
-      }
-      return post;
-    }));
-  };
-
-  // ฟังก์ชันแชท
-  const handleSendMessage = (e) => {
-    e.preventDefault();
-    if (!inputMessage.trim()) return;
-    setChatMessages([...chatMessages, { sender: username, text: inputMessage }]);
-    setInputMessage('');
-  };
-
-  // ฟังก์ชันห้องเสียง (Host ควบคุมสมาชิก)
-  const toggleMuteUser = (id) => {
-    if (!isHost) return;
-    setVoiceUsers(voiceUsers.map(u => u.id === id ? { ...u, isMuted: !u.isMuted } : u));
-  };
-
-  const kickUser = (id) => {
-    if (!isHost) return;
-    setVoiceUsers(voiceUsers.filter(u => u.id !== id));
-  };
-
-  const handlePlayYoutube = (e) => {
-    e.preventDefault();
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-    const match = youtubeUrl.match(regExp);
-    if (match && match[2].length === 11) {
-      setCurrentVideoId(match[2]);
-      setYoutubeUrl('');
-    } else {
-      alert('ลิงก์ YouTube ไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง');
-    }
-  };
-
-  return (
-    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)', padding: '20px', fontFamily: 'sans-serif', color: '#374151' }}>
-      <div style={{ maxWidth: '600px', margin: '0 auto' }}>
-        
-        {/* Navbar */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '15px', background: 'rgba(255, 255, 255, 0.7)', backdropFilter: 'blur(12px)', padding: '15px 20px', borderRadius: '25px', marginBottom: '20px', boxShadow: '0 8px 20px -4px rgba(139, 92, 246, 0.1)', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#8b5cf6', fontWeight: 'bold', fontSize: '1.2rem', marginRight: 'auto' }}>
-            ♡ Warmly <span style={{ fontSize: '0.75rem', background: '#ede9fe', padding: '3px 10px', borderRadius: '12px', color: '#7c3aed', fontWeight: 'normal' }}>{username}</span>
-          </div>
-          <div style={{ display: 'flex', gap: '5px', background: '#f3f4f6', padding: '5px', borderRadius: '20px' }}>
-            <button style={tabStyle(activeTab === 'feed')} onClick={() => setActiveTab('feed')}>🏠 ฟีด</button>
-            <button style={tabStyle(activeTab === 'chat')} onClick={() => setActiveTab('chat')}>💬 แชท</button>
-            <button style={tabStyle(activeTab === 'voice')} onClick={() => setActiveTab('voice')}>🎙️ ห้องเสียง</button>
-          </div>
+function ImgGrid({images}){
+  if(!images||!images.length)return null;
+  const n=images.length;
+  return(
+    <div style={{display:"grid",gap:3,overflow:"hidden",margin:"10px 0",borderRadius:14,
+      gridTemplateColumns:n===1?"1fr":"1fr 1fr",
+      maxHeight:n===1?320:260}}>
+      {images.slice(0,4).map((src,i)=>(
+        <div key={i} style={{overflow:"hidden",position:"relative",gridColumn:n===3&&i===0?"1/3":undefined}}>
+          <img src={src} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block",minHeight:130}}/>
+          {i===3&&n>4&&<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:22,fontWeight:700}}>+{n-4}</div>}
         </div>
+      ))}
+    </div>
+  );
+}
 
-        {/* --- หน้าฟีด (Feed) --- */}
-        {activeTab === 'feed' && (
-          <>
-            {/* Post Box */}
-            <form onSubmit={handleCreatePost} style={{ background: '#fff', borderRadius: '24px', padding: '20px', marginBottom: '20px', boxShadow: '0 10px 25px -5px rgba(139, 92, 246, 0.1)', border: '1px solid rgba(237, 233, 254, 0.5)' }}>
-              <div style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
-                <div style={avatarStyleGradient}>{username.substring(0, 2).toUpperCase()}</div>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <input 
-                    type="text" 
-                    value={newPostText}
-                    onChange={(e) => setNewPostText(e.target.value)}
-                    placeholder="คุณรู้สึกยังไงวันนี้? บอกเพื่อนๆบ้างนะ 💜" 
-                    style={{ width: '100%', border: '1px solid #f3f4f6', borderRadius: '16px', padding: '12px 16px', outline: 'none', background: '#f9fafb', fontSize: '0.95rem', boxSizing: 'border-box' }} 
-                  />
-                  <input 
-                    type="text" 
-                    value={newMediaUrl}
-                    onChange={(e) => {
-                      setNewMediaUrl(e.target.value);
-                      if (e.target.value.includes('youtube') || e.target.value.includes('youtu.be') || e.target.value.endsWith('.mp4')) {
-                        setNewMediaType('video');
-                      } else {
-                        setNewMediaType('image');
-                      }
-                    }}
-                    placeholder="🔗 วางลิงก์รูปภาพ หรือวิดีโอ (ถ้ามี)..." 
-                    style={{ width: '100%', border: '1px solid #f3f4f6', borderRadius: '12px', padding: '10px 14px', outline: 'none', background: '#fdfcfe', fontSize: '0.85rem', boxSizing: 'border-box' }} 
-                  />
-                </div>
-              </div>
+// ── MusicPlayer ───────────────────────────────────────────
+function MusicPlayer(){
+  const [playing,setPlaying]=useState(null);
+  const [progress,setProgress]=useState({});
+  const timers=useRef({});
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                {/* Privacy Dropdown */}
-                <div style={{ position: 'relative' }}>
-                  <button 
-                    type="button" 
-                    onClick={() => setShowPrivacyDropdown(!showPrivacyDropdown)}
-                    style={actionBtnStyle}
-                  >
-                    🔒 {postPrivacy} ▾
-                  </button>
-                  {showPrivacyDropdown && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, background: '#fff', borderRadius: '14px', boxShadow: '0 8px 20px rgba(0,0,0,0.1)', zIndex: 10, marginTop: '5px', overflow: 'hidden', border: '1px solid #f3f4f6', minWidth: '140px' }}>
-                      <div onClick={() => { setPostPrivacy('สาธารณะ 🌐'); setShowPrivacyDropdown(false); }} style={{ padding: '10px 15px', cursor: 'pointer', fontSize: '0.85rem', borderBottom: '1px solid #f3f4f6' }}>🌐 สาธารณะ</div>
-                      <div onClick={() => { setPostPrivacy('เพื่อนเท่านั้น 👥'); setShowPrivacyDropdown(false); }} style={{ padding: '10px 15px', cursor: 'pointer', fontSize: '0.85rem', borderBottom: '1px solid #f3f4f6' }}>👥 เพื่อนเท่านั้น</div>
-                      <div onClick={() => { setPostPrivacy('เฉพาะฉัน 🔒'); setShowPrivacyDropdown(false); }} style={{ padding: '10px 15px', cursor: 'pointer', fontSize: '0.85rem' }}>🔒 เฉพาะฉัน</div>
-                    </div>
-                  )}
-                </div>
+  function togglePlay(id){
+    if(playing===id){
+      clearInterval(timers.current[id]);
+      setPlaying(null);
+    } else {
+      if(playing)clearInterval(timers.current[playing]);
+      setPlaying(id);
+      let p=progress[id]||0;
+      timers.current[id]=setInterval(()=>{
+        p=Math.min(100,p+0.5);
+        setProgress(prev=>({...prev,[id]:p}));
+        if(p>=100){clearInterval(timers.current[id]);setPlaying(null);}
+      },100);
+    }
+  }
+  useEffect(()=>()=>Object.values(timers.current).forEach(clearInterval),[]);
 
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button type="button" style={actionBtnStyle}>✨ + Mood</button>
-                  <button type="submit" style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%)', color: '#fff', border: 'none', padding: '10px 22px', borderRadius: '20px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 15px rgba(139, 92, 246, 0.4)' }}>Post ✨</button>
-                </div>
-              </div>
-            </form>
-
-            {/* Feed Cards List */}
-            {posts.map((post) => (
-              <div key={post.id} style={{ background: '#fff', borderRadius: '24px', padding: '22px', marginBottom: '16px', boxShadow: '0 8px 20px -4px rgba(139, 92, 246, 0.08)', border: '1px solid rgba(237, 233, 254, 0.5)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' }}>
-                  <div style={{ display: 'flex', gap: '15px' }}>
-                    <div style={avatarStyleGradient}>{post.initials}</div>
-                    <div>
-                      <div style={{ fontWeight: 'bold', color: '#111827', fontSize: '1rem' }}>{post.name}</div>
-                      <div style={{ fontSize: '0.8rem', color: '#6b7280' }}>{post.time} • 🔒 {post.privacy}</div>
-                    </div>
-                  </div>
-                  <div style={{ background: 'linear-gradient(135deg, #a78bfa 0%, #c084fc 100%)', color: '#fff', padding: '5px 14px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 'bold', boxShadow: '0 2px 8px rgba(167, 139, 250, 0.3)' }}>
-                    {post.mood}
-                  </div>
-                </div>
-
-                <div style={{ marginBottom: '15px', lineHeight: '1.6', color: '#374151', fontSize: '0.95rem' }}>
-                  {post.content}
-                </div>
-
-                {post.mediaUrl && (
-                  <div style={{ marginBottom: '15px', borderRadius: '18px', overflow: 'hidden', background: '#000', maxHeight: '320px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-                    {post.mediaType === 'video' ? (
-                      <video src={post.mediaUrl} controls style={{ width: '100%', maxHeight: '320px', display: 'block' }} />
-                    ) : (
-                      <img src={post.mediaUrl} alt="Post media" style={{ width: '100%', maxHeight: '320px', objectFit: 'cover', display: 'block' }} />
-                    )}
+  return(
+    <div style={{marginTop:12}}>
+      <div style={{fontSize:13,fontWeight:700,color:C.brand,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+        🎵 เพลยลิสต์ห้องนี้
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:7}}>
+        {PLAYLIST.map(s=>{
+          const isPlaying=playing===s.id;
+          const prog=progress[s.id]||0;
+          return(
+            <div key={s.id} onClick={()=>togglePlay(s.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:12,background:isPlaying?`linear-gradient(90deg,${s.color}18,${s.color}08)`:C.bg,border:"1px solid "+(isPlaying?s.color:C.border),cursor:"pointer",transition:"all .2s"}}>
+              <div style={{width:36,height:36,borderRadius:10,background:`linear-gradient(135deg,${s.color},${s.color}99)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{s.emoji}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.title}</div>
+                <div style={{fontSize:11,color:C.sub}}>{s.artist}</div>
+                {isPlaying&&(
+                  <div style={{marginTop:5,height:3,background:C.border,borderRadius:3,overflow:"hidden"}}>
+                    <div style={{height:"100%",background:s.color,width:prog+"%",transition:"width .1s",borderRadius:3}}/>
                   </div>
                 )}
-
-                <hr style={{ border: 'none', borderTop: '1px solid #f3f4f6', marginBottom: '15px' }} />
-                
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <button 
-                    onClick={() => handleLike(post.id)} 
-                    style={{ ...actionBtnStyle, color: post.liked ? '#ec4899' : '#4b5563', borderColor: post.liked ? '#f472b6' : '#e5e7eb', background: post.liked ? '#fdf2f8' : '#fff' }}
-                  >
-                    💜 {post.likes}
-                  </button>
-                  <button style={actionBtnStyle}>💬 {post.comments}</button>
-                  <button style={actionBtnStyle} onClick={() => alert('คัดลอกลิงก์โพสต์เรียบร้อย!')}>🔗 แชร์</button>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}}>
+                <div style={{fontSize:11,color:C.muted}}>{s.duration}</div>
+                <div style={{width:26,height:26,borderRadius:"50%",background:isPlaying?s.color:"#EDE9FE",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:isPlaying?"#fff":C.brand}}>
+                  {isPlaying?"⏸":"▶"}
                 </div>
               </div>
-            ))}
-          </>
-        )}
-
-        {/* --- หน้าแชท (Chat) --- */}
-        {activeTab === 'chat' && (
-          <div style={{ background: '#fff', borderRadius: '24px', padding: '24px', boxShadow: '0 10px 25px -5px rgba(139, 92, 246, 0.1)', border: '1px solid rgba(237, 233, 254, 0.5)' }}>
-            <h3 style={{ color: '#111827', marginBottom: '15px', borderBottom: '1px solid #f3f4f6', paddingBottom: '12px', fontSize: '1.1rem' }}>💬 แชทกลุ่มเพื่อน Warmly</h3>
-            
-            <div style={{ height: '320px', overflowY: 'auto', background: '#f9fafb', borderRadius: '18px', padding: '16px', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '12px', border: '1px solid #f3f4f6' }}>
-              {chatMessages.map((msg, index) => (
-                <div key={index} style={{ alignSelf: msg.sender === username ? 'flex-end' : 'flex-start', background: msg.sender === username ? 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)' : '#e5e7eb', color: msg.sender === username ? '#fff' : '#1f2937', padding: '12px 16px', borderRadius: '18px', maxWidth: '75%', fontSize: '0.9rem', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
-                  <div style={{ fontSize: '0.75rem', opacity: 0.85, marginBottom: '3px', fontWeight: 'bold' }}>{msg.sender}</div>
-                  {msg.text}
-                </div>
-              ))}
             </div>
-
-            <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '10px' }}>
-              <input 
-                type="text" 
-                value={inputMessage} 
-                onChange={(e) => setInputMessage(e.target.value)} 
-                placeholder="พิมพ์ข้อความส่งในแชท..." 
-                style={{ flex: 1, border: '1px solid #e5e7eb', borderRadius: '16px', padding: '12px 16px', outline: 'none', background: '#f9fafb', fontSize: '0.95rem' }} 
-              />
-              <button type="submit" style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%)', color: '#fff', border: 'none', padding: '10px 22px', borderRadius: '16px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 12px rgba(139, 92, 246, 0.3)' }}>ส่ง</button>
-            </form>
-          </div>
-        )}
-
-        {/* --- หน้าห้องเสียง (Voice Room + Host Controls + YouTube Player) --- */}
-        {activeTab === 'voice' && (
-          <div style={{ background: '#fff', borderRadius: '24px', padding: '24px', boxShadow: '0 10px 25px -5px rgba(139, 92, 246, 0.1)', border: '1px solid rgba(237, 233, 254, 0.5)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', borderBottom: '1px solid #f3f4f6', paddingBottom: '12px' }}>
-              <h3 style={{ color: '#111827', margin: 0, fontSize: '1.1rem' }}>🎙️ ห้องเสียง & ฟังเพลงร่วมกัน</h3>
-              <span style={{ background: isHost ? '#ede9fe' : '#f3f4f6', color: isHost ? '#7c3aed' : '#4b5563', padding: '6px 14px', borderRadius: '16px', fontSize: '0.8rem', fontWeight: 'bold' }}>
-                {isHost ? '👑 เจ้าของห้อง (Host)' : '🎧 สมาชิก'}
-              </span>
-            </div>
-
-            {/* ส่วนแสดงวิดีโอ YouTube ร่วมกัน */}
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ borderRadius: '18px', overflow: 'hidden', background: '#000', position: 'relative', paddingBottom: '56.25%', height: 0, boxShadow: '0 4px 15px rgba(0,0,0,0.15)' }}>
-                <iframe 
-                  src={`https://www.youtube.com/embed/${currentVideoId}`} 
-                  title="YouTube video player" 
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                  allowFullScreen
-                ></iframe>
-              </div>
-              
-              <form onSubmit={handlePlayYoutube} style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
-                <input 
-                  type="text" 
-                  value={youtubeUrl} 
-                  onChange={(e) => setYoutubeUrl(e.target.value)} 
-                  placeholder="🔗 วางลิงก์ YouTube เพื่อเปิดฟังร่วมกันในห้อง..." 
-                  style={{ flex: 1, border: '1px solid #e5e7eb', borderRadius: '14px', padding: '10px 14px', fontSize: '0.85rem', outline: 'none', background: '#f9fafb' }} 
-                />
-                <button type="submit" style={{ background: '#8b5cf6', color: '#fff', border: 'none', padding: '10px 18px', borderRadius: '14px', fontWeight: 'bold', fontSize: '0.85rem', cursor: 'pointer', boxShadow: '0 2px 8px rgba(139, 92, 246, 0.3)' }}>เปิดเพลง</button>
-              </form>
-            </div>
-
-            <h4 style={{ color: '#374151', fontSize: '0.95rem', marginBottom: '12px' }}>สมาชิกในห้องเสียง ({voiceUsers.length})</h4>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
-              {voiceUsers.map((user) => (
-                <div key={user.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f9fafb', padding: '12px 16px', borderRadius: '16px', border: '1px solid #f3f4f6' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: 'linear-gradient(135deg, #8b5cf6 0%, #c084fc 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '0.85rem', boxShadow: '0 2px 6px rgba(139, 92, 246, 0.3)' }}>
-                      {user.name.charAt(0)}
-                    </div>
-                    <div>
-                      <div style={{ fontWeight: 'bold', fontSize: '0.9rem', color: '#111827' }}>{user.name}</div>
-                      <div style={{ fontSize: '0.75rem', color: user.isMuted ? '#ef4444' : '#10b981', fontWeight: '500' }}>
-                        {user.isMuted ? '🔇 ปิดไมค์อยู่' : '🎙️ เปิดไมค์พูดคุย'}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* ปุ่มควบคุมเฉพาะ Host: ปิด/เปิดไมค์ และ เตะสมาชิกออก */}
-                  {isHost && user.id !== 1 && (
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button 
-                        onClick={() => toggleMuteUser(user.id)}
-                        style={{ background: user.isMuted ? '#fee2e2' : '#f3f4f6', color: user.isMuted ? '#dc2626' : '#374151', border: 'none', padding: '6px 12px', borderRadius: '10px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 'bold' }}
-                      >
-                        {user.isMuted ? 'เปิดไมค์' : 'ปิดไมค์'}
-                      </button>
-                      <button 
-                        onClick={() => kickUser(user.id)}
-                        style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '6px 12px', borderRadius: '10px', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 'bold' }}
-                      >
-                        เตะออก
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <div style={{ textAlign: 'center' }}>
-              <button 
-                onClick={() => alert('สลับสถานะไมโครโฟนของคุณเรียบร้อย')} 
-                style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%)', color: '#fff', border: 'none', padding: '12px 24px', borderRadius: '22px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 15px rgba(139, 92, 246, 0.4)', fontSize: '0.9rem' }}
-              >
-                🎙️ เปิด/ปิดไมค์ของฉัน
-              </button>
-            </div>
-          </div>
-        )}
-
+          );
+        })}
       </div>
     </div>
   );
 }
 
-const tabStyle = (isActive) => ({
-  padding: '8px 18px',
-  borderRadius: '16px',
-  border: 'none',
-  background: isActive ? '#8b5cf6' : 'transparent',
-  color: isActive ? '#fff' : '#6b7280',
-  fontWeight: isActive ? 'bold' : 'normal',
-  cursor: 'pointer',
-  transition: 'all 0.2s',
-  fontSize: '0.9rem'
-});
+// ── PostCard ──────────────────────────────────────────────
+function PostCard({p,onLike,onComment}){
+  const [open,setOpen]=useState(false);
+  const [cmt,setCmt]=useState("");
+  const [err,setErr]=useState("");
+  function submit(){
+    if(!cmt.trim()){setErr("เม้นอะไรก่อนนะ 😊");return;}
+    onComment(p.id,cmt.trim());setCmt("");setErr("");
+  }
+  return(
+    <Card style={{marginBottom:14}}>
+      <div style={{padding:"16px 16px 0"}}>
+        <div style={{display:"flex",gap:11,marginBottom:12}}>
+          <Av init={p.init} bg={p.bg} tc={p.tc} size={40}/>
+          <div style={{flex:1}}>
+            <div style={{fontSize:14,fontWeight:700,color:C.text}}>{p.author}</div>
+            <div style={{fontSize:12,color:C.muted,display:"flex",flexWrap:"wrap",gap:6,marginTop:3}}>
+              <span>{p.time}</span><span>·</span>
+              <span>{PV_ICO[p.privacy]} {PV_LBL[p.privacy]}</span>
+              {p.mood&&<Pill bg={C.gradSoft} tc={C.brand}>✦ {p.mood}</Pill>}
+            </div>
+          </div>
+        </div>
+        {p.content&&<div style={{fontSize:15,color:C.text,lineHeight:1.7,marginBottom:4}}>{p.content}</div>}
+      </div>
+      <ImgGrid images={p.images}/>
+      <div style={{padding:"0 16px 14px"}}>
+        <div style={{borderTop:"1px solid "+C.border,paddingTop:10,display:"flex",gap:8}}>
+          <button onClick={()=>onLike(p.id)} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 14px",borderRadius:20,border:"1px solid "+(p.liked?C.brand:C.border),background:p.liked?C.grad:"transparent",color:p.liked?"#fff":C.sub,cursor:"pointer",fontSize:13,fontWeight:600,transition:"all .2s"}}>
+            {p.liked?"❤️":"🤍"} {p.likes}
+          </button>
+          <button onClick={()=>setOpen(!open)} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 14px",borderRadius:20,border:"1px solid "+(open?C.brand:C.border),background:open?"#F5F3FF":"transparent",color:open?C.brand:C.sub,cursor:"pointer",fontSize:13,transition:"all .2s"}}>
+            💬 {p.comments.length}
+          </button>
+          <button style={{display:"flex",alignItems:"center",gap:5,padding:"6px 14px",borderRadius:20,border:"1px solid "+C.border,background:"transparent",color:C.sub,cursor:"pointer",fontSize:13}}>
+            🔗 แชร์
+          </button>
+        </div>
+        {open&&(
+          <div style={{marginTop:12}}>
+            {p.comments.map(c=>(
+              <div key={c.id} style={{display:"flex",gap:8,marginBottom:10}}>
+                <Av init={c.init} bg={c.bg} tc={c.tc} size={30}/>
+                <div style={{background:C.bg,borderRadius:12,padding:"8px 12px",flex:1,border:"1px solid "+C.border}}>
+                  <div style={{fontSize:12,fontWeight:700,color:C.text}}>{c.author} <span style={{fontWeight:400,color:C.muted,fontSize:11}}>{c.time}</span></div>
+                  <div style={{fontSize:13,color:C.text,marginTop:3}}>{c.text}</div>
+                </div>
+              </div>
+            ))}
+            <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6}}>
+              <Av init="สต" grad={C.grad} tc="#fff" size={30}/>
+              <input value={cmt} onChange={e=>{setCmt(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&submit()} placeholder="เม้นอะไรสักอย่าง..." style={{flex:1,border:"1px solid "+C.border,borderRadius:20,padding:"8px 14px",fontSize:13,outline:"none",background:C.bg,color:C.text,fontFamily:"inherit"}}/>
+              <button onClick={submit} style={{padding:"8px 16px",borderRadius:20,border:"none",background:C.grad,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:600}}>ส่ง</button>
+            </div>
+            {err&&<div style={{fontSize:12,color:C.red,marginTop:5,marginLeft:38}}>{err}</div>}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
 
-const avatarStyleGradient = {
-  width: '45px',
-  height: '45px',
-  borderRadius: '50%',
-  background: 'linear-gradient(white, white) padding-box, linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%) border-box',
-  border: '3px solid transparent',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  fontWeight: 'bold',
-  color: '#8b5cf6',
-  flexShrink: 0,
-  boxShadow: '0 2px 8px rgba(139, 92, 246, 0.2)'
-};
+// ── NewPostBox ────────────────────────────────────────────
+function NewPostBox({onPost}){
+  const [text,setText]=useState("");
+  const [mood,setMood]=useState("");
+  const [privacy,setPrivacy]=useState("public");
+  const [images,setImages]=useState([]);
+  const [err,setErr]=useState("");
+  const [showM,setShowM]=useState(false);
+  const fileRef=useRef();
 
-const actionBtnStyle = {
-  padding: '6px 14px',
-  borderRadius: '16px',
-  border: '1px solid #e5e7eb',
-  background: '#fff',
-  color: '#4b5563',
-  cursor: 'pointer',
-  fontSize: '0.85rem',
-  transition: 'all 0.2s'
-};
+  function handleFiles(e){
+    Array.from(e.target.files).forEach(f=>{
+      const r=new FileReader();
+      r.onload=ev=>setImages(p=>[...p,{src:ev.target.result,isVideo:f.type.startsWith("video/"),name:f.name}]);
+      r.readAsDataURL(f);
+    });
+    e.target.value="";
+  }
+  function submit(){
+    if(!text.trim()&&!images.length){setErr("เขียนอะไรหรือเพิ่มรูปก่อนนะ");return;}
+    onPost({text:text.trim(),mood,privacy,images:images.map(i=>i.src)});
+    setText("");setMood("");setImages([]);setErr("");setShowM(false);
+  }
+
+  return(
+    <Card style={{marginBottom:16}} gradient>
+      <div style={{padding:"16px 16px 14px"}}>
+        <div style={{display:"flex",gap:11}}>
+          <Av init="สต" grad={C.grad} tc="#fff" size={40}/>
+          <textarea value={text} onChange={e=>{setText(e.target.value);setErr("");}} placeholder="คุณรู้สึกยังไงวันนี้? บอกเพื่อนๆบ้างนะ 💜" style={{flex:1,border:"1px solid "+C.border,borderRadius:14,padding:"10px 14px",fontSize:14,resize:"none",outline:"none",minHeight:72,lineHeight:1.6,background:"#fff",color:C.text,fontFamily:"inherit"}}/>
+        </div>
+        {images.length>0&&(
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10,marginLeft:51}}>
+            {images.map((img,i)=>(
+              <div key={i} style={{position:"relative",width:72,height:72,borderRadius:10,overflow:"hidden",border:"1px solid "+C.border}}>
+                {img.isVideo
+                  ?<div style={{width:"100%",height:"100%",background:"#1a1a1a",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2}}><span style={{fontSize:20}}>🎬</span><span style={{fontSize:9,color:"#aaa"}}>{img.name.slice(0,10)}</span></div>
+                  :<img src={img.src} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                }
+                <button onClick={()=>setImages(imgs=>imgs.filter((_,j)=>j!==i))} style={{position:"absolute",top:2,right:2,width:18,height:18,borderRadius:"50%",background:"rgba(0,0,0,.6)",border:"none",color:"#fff",cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        {err&&<div style={{fontSize:12,color:C.red,marginTop:6,marginLeft:51}}>{err}</div>}
+        <div style={{display:"flex",alignItems:"center",gap:7,marginTop:12,marginLeft:51,flexWrap:"wrap"}}>
+          <input ref={fileRef} type="file" accept="image/*,video/*" multiple style={{display:"none"}} onChange={handleFiles}/>
+          <button onClick={()=>fileRef.current.click()} style={{padding:"6px 12px",borderRadius:20,border:"1px solid "+C.border,background:"#fff",color:C.sub,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",gap:5,fontFamily:"inherit"}}>
+            📷 รูป/วิดีโอ{images.length>0?` (${images.length})`:""}
+          </button>
+          <button onClick={()=>setShowM(!showM)} style={{padding:"6px 12px",borderRadius:20,border:"1px solid "+(mood?C.brand:C.border),background:mood?C.gradSoft:"#fff",color:mood?C.brand:C.sub,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>
+            ✦ {mood||"mood"}
+          </button>
+          <select value={privacy} onChange={e=>setPrivacy(e.target.value)} style={{padding:"6px 10px",borderRadius:20,border:"1px solid "+C.border,background:"#fff",color:C.sub,cursor:"pointer",fontSize:12,outline:"none",fontFamily:"inherit"}}>
+            <option value="public">🌐 สาธารณะ</option>
+            <option value="friends">👥 เพื่อนเท่านั้น</option>
+            <option value="only_me">🔒 ฉันเท่านั้น</option>
+          </select>
+          <button onClick={submit} style={{marginLeft:"auto",padding:"7px 20px",borderRadius:20,border:"none",background:C.grad,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit",boxShadow:"0 2px 8px rgba(139,124,246,.4)"}}>โพสต์ ✨</button>
+        </div>
+        {showM&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10,marginLeft:51}}>{MOODS.map(m=><button key={m} onClick={()=>{setMood(m);setShowM(false);}} style={{padding:"5px 11px",borderRadius:20,border:"1px solid "+(mood===m?C.brand:C.border),background:mood===m?C.gradSoft:"#fff",color:mood===m?C.brand:C.sub,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>{m}</button>)}</div>}
+      </div>
+    </Card>
+  );
+}
+
+// ── Feed ──────────────────────────────────────────────────
+function FeedPage({posts,setPosts}){
+  function handleLike(id){setPosts(ps=>ps.map(p=>p.id===id?{...p,liked:!p.liked,likes:p.liked?p.likes-1:p.likes+1}:p));}
+  function handleComment(id,text){setPosts(ps=>ps.map(p=>p.id===id?{...p,comments:[...p.comments,{id:Date.now(),author:"สิทธิชัย",init:"สต",bg:"#EDE9FE",tc:C.brand,text,time:"เมื่อกี้"}]}:p));}
+  function handlePost({text,mood,privacy,images}){setPosts(ps=>[{id:Date.now(),author:"สิทธิชัย",init:"สต",bg:"#EDE9FE",tc:C.brand,time:"เมื่อกี้",content:text,mood,privacy,likes:0,liked:false,images:images||[],comments:[]},...ps]);}
+  return(<div><NewPostBox onPost={handlePost}/>{posts.map(p=><PostCard key={p.id} p={p} onLike={handleLike} onComment={handleComment}/>)}</div>);
+}
+
+// ── Chat ──────────────────────────────────────────────────
+function ChatPage(){
+  const [chats,setChats]=useState(INIT_CHATS);
+  const [active,setActive]=useState(1);
+  const [input,setInput]=useState("");
+  const [voiceOn,setVoiceOn]=useState(false);
+  const [micOn,setMicOn]=useState(true);
+  const [chatImg,setChatImg]=useState(null);
+  const fileRef=useRef();
+  const endRef=useRef();
+  useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth"});},[chats,active]);
+
+  const friend=FRIENDS.find(f=>f.id===active);
+  const msgs=chats[active]||[];
+
+  function send(){
+    const txt=input.trim();
+    if(!txt&&!chatImg)return;
+    const newMsgs=[];
+    if(chatImg)newMsgs.push({id:Date.now(),from:"me",type:"image",src:chatImg});
+    if(txt)newMsgs.push({id:Date.now()+1,from:"me",type:"text",text:txt});
+    setChats(c=>({...c,[active]:[...(c[active]||[]),...newMsgs]}));
+    setInput("");setChatImg(null);
+    setTimeout(()=>{
+      const r=AUTO_REPLIES[Math.floor(Math.random()*AUTO_REPLIES.length)];
+      setChats(c=>({...c,[active]:[...(c[active]||[]),{id:Date.now()+2,from:"them",type:"text",text:r}]}));
+    },900+Math.random()*500);
+  }
+
+  function toggleVoice(){
+    const next=!voiceOn;setVoiceOn(next);
+    if(next){
+      setChats(c=>({...c,[active]:[...(c[active]||[]),{id:Date.now(),from:"system",text:`🎙️ เปิดห้องเสียงแล้ว — รอ ${friend.name} รับสาย...`}]}));
+      setTimeout(()=>setChats(c=>({...c,[active]:[...(c[active]||[]),{id:Date.now(),from:"system",text:`✅ ${friend.name} รับสายแล้ว! คุยได้เลย 💜`}]})),1400);
+    } else {
+      setChats(c=>({...c,[active]:[...(c[active]||[]),{id:Date.now(),from:"system",text:"📵 วางสายแล้ว"}]}));
+    }
+  }
+
+  return(
+    <div style={{display:"flex",height:"calc(100vh - 116px)",minHeight:460}}>
+      {/* Sidebar */}
+      <div style={{width:200,borderRight:"1px solid "+C.border,background:C.surface,display:"flex",flexDirection:"column",flexShrink:0}}>
+        <div style={{padding:"14px 14px 10px",borderBottom:"1px solid "+C.border}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.text}}>ข้อความ</div>
+        </div>
+        <div style={{flex:1,overflowY:"auto"}}>
+          {FRIENDS.map(f=>(
+            <div key={f.id} onClick={()=>setActive(f.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",background:active===f.id?C.gradSoft:"transparent",borderBottom:"1px solid "+C.border,transition:"background .15s"}}>
+              <Av init={f.init} bg={f.bg} tc={f.tc} size={34} online={f.online}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:700,color:active===f.id?C.brand:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{f.name}</div>
+                <div style={{fontSize:11,color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{(chats[f.id]||[]).filter(m=>m.type==="text").slice(-1)[0]?.text||"..."}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Main */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",background:C.bg,minWidth:0}}>
+        {/* Header */}
+        <div style={{padding:"10px 16px",borderBottom:"1px solid "+C.border,background:C.surface,display:"flex",alignItems:"center",gap:11,flexShrink:0}}>
+          <Av init={friend.init} bg={friend.bg} tc={friend.tc} size={36} online={friend.online}/>
+          <div style={{flex:1}}>
+            <div style={{fontSize:14,fontWeight:700,color:C.text}}>{friend.name}</div>
+            <div style={{fontSize:12,color:C.muted,display:"flex",alignItems:"center",gap:6}}>
+              {friend.online&&<><div style={{width:6,height:6,borderRadius:"50%",background:C.green}}/><span>ออนไลน์</span></>}
+              {friend.mood&&<Pill bg={C.gradSoft} tc={C.brand}>✦ {friend.mood}</Pill>}
+            </div>
+          </div>
+          <button onClick={toggleVoice} style={{padding:"7px 14px",borderRadius:20,border:"1px solid "+(voiceOn?C.brand:C.border),background:voiceOn?C.grad:"#fff",color:voiceOn?"#fff":C.sub,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:5,boxShadow:voiceOn?"0 2px 8px rgba(139,124,246,.35)":"none",transition:"all .2s"}}>
+            🎙️ {voiceOn?"กำลังคุย":"เปิดเสียง"}
+          </button>
+        </div>
+
+        {/* Voice bar */}
+        {voiceOn&&(
+          <div style={{background:C.gradSoft,borderBottom:"1px solid "+C.border,padding:"12px 16px",flexShrink:0}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+              <div style={{fontSize:13,fontWeight:700,color:C.brand,display:"flex",alignItems:"center",gap:6}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:C.green,animation:"pulse 1.5s infinite"}}/>
+                ห้องเสียง — กำลังคุยกัน
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>setMicOn(!micOn)} style={{padding:"5px 11px",borderRadius:20,border:"1px solid "+C.brand,background:"#fff",color:C.brand,cursor:"pointer",fontSize:12,fontWeight:600}}>{micOn?"🎙️ ไมค์เปิด":"🔇 ไมค์ปิด"}</button>
+                <button onClick={toggleVoice} style={{padding:"5px 11px",borderRadius:20,border:"1px solid "+C.red,background:C.redL,color:C.red,cursor:"pointer",fontSize:12,fontWeight:600}}>📵 วางสาย</button>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:16}}>
+              {[{init:"สต",grad:C.grad,tc:"#fff",name:"คุณ",sp:true},{init:friend.init,bg:friend.bg,tc:friend.tc,name:friend.name,sp:false}].map((u,i)=>(
+                <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5}}>
+                  <div style={{padding:2,borderRadius:"50%",border:"2.5px solid "+(u.sp?C.green:C.brand),animation:u.sp?"pulse-border 1.5s infinite":undefined}}>
+                    <Av init={u.init} bg={u.bg} grad={u.grad} tc={u.tc} size={42}/>
+                  </div>
+                  <div style={{fontSize:12,color:C.brand,fontWeight:700}}>{u.name}</div>
+                  <div style={{fontSize:11,color:C.muted}}>{u.sp?(micOn?"🎙️":"🔇"):"🎧"}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {chatImg&&(
+          <div style={{padding:"8px 16px 0",flexShrink:0}}>
+            <div style={{position:"relative",display:"inline-block"}}>
+              <img src={chatImg} alt="" style={{height:64,borderRadius:10,objectFit:"cover",border:"1px solid "+C.border}}/>
+              <button onClick={()=>setChatImg(null)} style={{position:"absolute",top:-4,right:-4,width:18,height:18,borderRadius:"50%",background:"#555",border:"none",color:"#fff",cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+            </div>
+          </div>
+        )}
+
+        <div style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:8}}>
+          {msgs.map(m=>{
+            if(m.from==="system")return<div key={m.id} style={{textAlign:"center",fontSize:12,color:C.muted,padding:"4px 0",background:"transparent"}}>{m.text}</div>;
+            const me=m.from==="me";
+            return(
+              <div key={m.id} style={{display:"flex",gap:8,alignItems:"flex-end",flexDirection:me?"row-reverse":"row"}}>
+                {!me&&<Av init={friend.init} bg={friend.bg} tc={friend.tc} size={28}/>}
+                <div style={{maxWidth:"70%"}}>
+                  {m.type==="image"
+                    ?<img src={m.src} alt="" style={{maxWidth:"100%",borderRadius:14,display:"block",border:"1px solid "+C.border}}/>
+                    :<div style={{padding:"9px 14px",borderRadius:16,fontSize:14,lineHeight:1.55,background:me?C.grad:"#fff",color:me?"#fff":C.text,border:me?"none":"1px solid "+C.border,borderBottomLeftRadius:!me?4:16,borderBottomRightRadius:me?4:16,boxShadow:me?"0 2px 8px rgba(139,124,246,.3)":"0 1px 4px rgba(0,0,0,.04)"}}>{m.text}</div>
+                  }
+                </div>
+              </div>
+            );
+          })}
+          <div ref={endRef}/>
+        </div>
+
+        <div style={{padding:"10px 16px",borderTop:"1px solid "+C.border,background:C.surface,flexShrink:0}}>
+          <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setChatImg(ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
+          <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+            <button onClick={()=>fileRef.current.click()} style={{width:36,height:36,borderRadius:"50%",border:"1px solid "+C.border,background:C.bg,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>📷</button>
+            <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}} placeholder="พิมพ์ข้อความ..." rows={1} style={{flex:1,border:"1px solid "+C.border,borderRadius:20,padding:"9px 16px",fontSize:14,color:C.text,background:C.bg,outline:"none",resize:"none",fontFamily:"inherit",lineHeight:1.4}}/>
+            <button onClick={send} style={{width:38,height:38,borderRadius:"50%",background:C.grad,border:"none",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff",flexShrink:0,fontSize:17,boxShadow:"0 2px 8px rgba(139,124,246,.4)"}}>↑</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Voice Rooms ───────────────────────────────────────────
+function VoiceRoomsPage(){
+  const [rooms,setRooms]=useState(VOICE_ROOMS);
+  const [inRoom,setInRoom]=useState(null);
+  const [micOn,setMicOn]=useState(true);
+  const [showMusic,setShowMusic]=useState(false);
+  const [newName,setNewName]=useState("");
+  const [creating,setCreating]=useState(false);
+  const [nameErr,setNameErr]=useState("");
+
+  function join(r){setInRoom(r);setMicOn(true);setShowMusic(false);}
+  function leave(){setInRoom(null);setShowMusic(false);}
+  function createRoom(){
+    if(!newName.trim()){setNameErr("ใส่ชื่อห้องก่อนนะ");return;}
+    const r={id:Date.now(),name:newName.trim(),users:["สต"],count:1,vibe:"🎵"};
+    setRooms(rs=>[r,...rs]);join(r);setNewName("");setCreating(false);setNameErr("");
+  }
+
+  return(
+    <div>
+      {/* Active room */}
+      {inRoom&&(
+        <div style={{background:C.gradSoft,border:"1px solid "+C.brand,borderRadius:18,padding:"16px",marginBottom:16,boxShadow:"0 4px 20px rgba(139,124,246,.15)"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+            <div style={{fontSize:15,fontWeight:700,color:C.brand,display:"flex",alignItems:"center",gap:8}}>
+              <div style={{width:9,height:9,borderRadius:"50%",background:C.green,boxShadow:"0 0 6px "+C.green}}/>
+              {inRoom.vibe} {inRoom.name}
+            </div>
+            <div style={{display:"flex",gap:7}}>
+              <button onClick={()=>setShowMusic(!showMusic)} style={{padding:"6px 12px",borderRadius:20,border:"1px solid "+C.brand,background:showMusic?C.brand:"#fff",color:showMusic?"#fff":C.brand,cursor:"pointer",fontSize:12,fontWeight:600}}>🎵 เพลง</button>
+              <button onClick={()=>setMicOn(!micOn)} style={{padding:"6px 12px",borderRadius:20,border:"1px solid "+C.brand,background:"#fff",color:C.brand,cursor:"pointer",fontSize:12,fontWeight:600}}>{micOn?"🎙️ เปิด":"🔇 ปิด"}</button>
+              <button onClick={leave} style={{padding:"6px 12px",borderRadius:20,border:"1px solid "+C.red,background:C.redL,color:C.red,cursor:"pointer",fontSize:12,fontWeight:600}}>📵 ออก</button>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:showMusic?14:0}}>
+            {[{init:"สต",grad:C.grad,tc:"#fff",name:"คุณ",sp:true},...FRIENDS.slice(0,inRoom.count).map(f=>({init:f.init,bg:f.bg,tc:f.tc,name:f.name,sp:false}))].map((u,i)=>(
+              <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5}}>
+                <div style={{padding:3,borderRadius:"50%",border:"3px solid "+(u.sp?C.green:C.brand)}}>
+                  <Av init={u.init} bg={u.bg} grad={u.grad} tc={u.tc} size={46}/>
+                </div>
+                <div style={{fontSize:12,color:C.brand,fontWeight:700}}>{u.name}</div>
+                <div style={{fontSize:11,color:C.muted}}>{u.sp?(micOn?"🎙️":"🔇"):"🎧"}</div>
+              </div>
+            ))}
+          </div>
+          {showMusic&&<MusicPlayer/>}
+        </div>
+      )}
+
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+        <div style={{fontSize:15,fontWeight:700,color:C.text}}>ห้องเสียงที่เปิดอยู่ 🎙️</div>
+        <button onClick={()=>setCreating(!creating)} style={{padding:"7px 16px",borderRadius:20,border:"1px solid "+C.brand,background:creating?C.grad:C.gradSoft,color:creating?"#fff":C.brand,cursor:"pointer",fontSize:13,fontWeight:700,boxShadow:creating?"0 2px 8px rgba(139,124,246,.3)":"none"}}>+ เปิดห้องใหม่</button>
+      </div>
+
+      {creating&&(
+        <Card style={{marginBottom:14}}>
+          <div style={{padding:"14px 16px"}}>
+            <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:10}}>ชื่อห้องใหม่</div>
+            <div style={{display:"flex",gap:8}}>
+              <input value={newName} onChange={e=>{setNewName(e.target.value);setNameErr("");}} onKeyDown={e=>e.key==="Enter"&&createRoom()} placeholder="เช่น คืนนี้ใครว่างบ้าง 🌙" style={{flex:1,border:"1px solid "+C.border,borderRadius:12,padding:"9px 14px",fontSize:14,outline:"none",background:C.bg,color:C.text,fontFamily:"inherit"}}/>
+              <button onClick={createRoom} style={{padding:"9px 18px",borderRadius:12,border:"none",background:C.grad,color:"#fff",cursor:"pointer",fontSize:14,fontWeight:700}}>สร้าง</button>
+            </div>
+            {nameErr&&<div style={{fontSize:12,color:C.red,marginTop:6}}>{nameErr}</div>}
+          </div>
+        </Card>
+      )}
+
+      <div style={{display:"flex",flexDirection:"column",gap:11}}>
+        {rooms.map(r=>(
+          <Card key={r.id} style={{border:"1px solid "+(inRoom?.id===r.id?C.brand:C.border)}}>
+            <div style={{padding:"14px 16px"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                <div>
+                  <div style={{fontSize:14,fontWeight:700,color:C.text}}>{r.vibe} {r.name}</div>
+                  <div style={{fontSize:12,color:C.muted,display:"flex",alignItems:"center",gap:5,marginTop:4}}>
+                    <div style={{width:7,height:7,borderRadius:"50%",background:C.green}}/>{r.count} คนอยู่ในห้อง
+                  </div>
+                </div>
+                {inRoom?.id===r.id
+                  ?<button onClick={leave} style={{padding:"7px 16px",borderRadius:20,border:"1px solid "+C.red,background:C.redL,color:C.red,cursor:"pointer",fontSize:13,fontWeight:700}}>ออก</button>
+                  :<button onClick={()=>join(r)} style={{padding:"7px 16px",borderRadius:20,border:"none",background:C.grad,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,boxShadow:"0 2px 8px rgba(139,124,246,.35)"}}>เข้าร่วม</button>
+                }
+              </div>
+              <div style={{display:"flex",gap:5}}>
+                {r.users.slice(0,6).map((u,i)=>{const f=FRIENDS.find(f=>f.init===u)||{bg:"#EDE9FE",tc:C.brand};return<div key={i} style={{width:28,height:28,borderRadius:"50%",background:f.bg,color:f.tc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,border:"2px solid #fff",marginLeft:i>0?-8:0}}>{u}</div>;})}
+                {r.count>6&&<div style={{width:28,height:28,borderRadius:"50%",background:C.bg,color:C.muted,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,border:"2px solid #fff",marginLeft:-8}}>+{r.count-6}</div>}
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Profile ───────────────────────────────────────────────
+function ProfilePage({posts}){
+  const [bio,setBio]=useState("ชอบคุยเล่น • ฟังเพลง • หาเพื่อนใหม่ 💜");
+  const [mood,setMood]=useState("สบายดี 😊");
+  const [editing,setEditing]=useState(false);
+  const [bioInput,setBioInput]=useState(bio);
+  const [showMP,setShowMP]=useState(false);
+  const [coverImg,setCoverImg]=useState(null);
+  const [avatarImg,setAvatarImg]=useState(null);
+  const coverRef=useRef();
+  const avatarRef=useRef();
+  const myPosts=posts.filter(p=>p.author==="สิทธิชัย");
+
+  return(
+    <div>
+      <Card style={{marginBottom:14,overflow:"hidden"}}>
+        <div style={{height:120,background:coverImg?"transparent":C.grad,position:"relative",cursor:"pointer"}} onClick={()=>coverRef.current.click()}>
+          {coverImg?<img src={coverImg} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",color:"rgba(255,255,255,.7)",fontSize:13}}>✏️ คลิกเพื่อเปลี่ยนรูปปก</div>}
+          <input ref={coverRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setCoverImg(ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
+        </div>
+        <div style={{padding:"0 18px 18px",position:"relative"}}>
+          <div style={{position:"absolute",top:-36,left:18,cursor:"pointer"}} onClick={()=>avatarRef.current.click()}>
+            {avatarImg
+              ?<div style={{width:68,height:68,borderRadius:"50%",overflow:"hidden",border:"4px solid #fff",boxShadow:"0 2px 12px rgba(139,124,246,.3)"}}><img src={avatarImg} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/></div>
+              :<div style={{width:68,height:68,borderRadius:"50%",background:C.grad,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,fontWeight:700,border:"4px solid #fff",boxShadow:"0 2px 12px rgba(139,124,246,.3)"}}>สต</div>
+            }
+            <input ref={avatarRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setAvatarImg(ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
+          </div>
+          <div style={{paddingTop:42}}>
+            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontSize:18,fontWeight:700,color:C.text}}>สิทธิชัย</div>
+                {editing
+                  ?<div style={{marginTop:5,display:"flex",gap:7}}><input value={bioInput} onChange={e=>setBioInput(e.target.value)} style={{border:"1px solid "+C.border,borderRadius:10,padding:"5px 10px",fontSize:13,outline:"none",width:210,color:C.text,background:C.bg}}/><button onClick={()=>{setBio(bioInput);setEditing(false);}} style={{padding:"5px 12px",borderRadius:10,border:"none",background:C.grad,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>บันทึก</button></div>
+                  :<div style={{fontSize:13,color:C.sub,marginTop:4}}>{bio}</div>
+                }
+                <div style={{marginTop:8}}>
+                  <Pill bg={C.gradSoft} tc={C.brand} onClick={()=>setShowMP(!showMP)}>✦ {mood}</Pill>
+                </div>
+                {showMP&&<div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:7}}>{MOODS.map(m=><button key={m} onClick={()=>{setMood(m);setShowMP(false);}} style={{padding:"4px 9px",borderRadius:20,border:"1px solid "+(mood===m?C.brand:C.border),background:mood===m?C.gradSoft:"#fff",color:mood===m?C.brand:C.sub,cursor:"pointer",fontSize:11,fontFamily:"inherit"}}>{m}</button>)}</div>}
+              </div>
+              <button onClick={()=>{setEditing(!editing);setBioInput(bio);}} style={{padding:"7px 14px",borderRadius:20,border:"1px solid "+C.border,background:"#fff",color:C.sub,cursor:"pointer",fontSize:13}}>✏️ แก้ไข</button>
+            </div>
+            <div style={{display:"flex",gap:24,marginTop:16,paddingTop:14,borderTop:"1px solid "+C.border}}>
+              {[["48","เพื่อน"],[String(myPosts.length),"โพสต์"],["1.2k","การเข้าชม"]].map(([n,l])=>(
+                <div key={l} style={{textAlign:"center"}}>
+                  <div style={{fontSize:18,fontWeight:700,background:C.grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>{n}</div>
+                  <div style={{fontSize:12,color:C.muted}}>{l}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Card>
+      <Card>
+        <div style={{padding:"16px"}}>
+          <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:12}}>โพสต์ของฉัน</div>
+          {myPosts.length===0&&<div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"20px 0"}}>ยังไม่มีโพสต์ — ลองโพสต์แรกได้เลย! ✨</div>}
+          {myPosts.map(p=>(
+            <div key={p.id} style={{borderBottom:"1px solid "+C.border,paddingBottom:12,marginBottom:12}}>
+              {p.images?.length>0&&<div style={{display:"flex",gap:5,marginBottom:7,flexWrap:"wrap"}}>{p.images.map((src,i)=><img key={i} src={src} alt="" style={{width:60,height:60,borderRadius:10,objectFit:"cover",border:"1px solid "+C.border}}/>)}</div>}
+              {p.content&&<div style={{fontSize:13,color:C.text,lineHeight:1.6}}>{p.content}</div>}
+              <div style={{fontSize:11,color:C.muted,marginTop:5,display:"flex",gap:8,flexWrap:"wrap"}}>
+                <span>{p.time}</span><span>{PV_ICO[p.privacy]}</span>
+                {p.mood&&<Pill bg={C.gradSoft} tc={C.brand}>✦ {p.mood}</Pill>}
+                <span>❤️ {p.likes}</span><span>💬 {p.comments.length}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ── Privacy ───────────────────────────────────────────────
+function PrivacyPage(){
+  const [s,setS]=useState({postDef:"public",whoSee:"public",whoCmt:"everyone",whoMsg:"everyone",showMood:true,showOnline:true,showLast:true,friendList:"friends"});
+  const set=(k,v)=>setS(p=>({...p,[k]:v}));
+  const pv=[{v:"public",l:"🌐 สาธารณะ"},{v:"friends",l:"👥 เพื่อนเท่านั้น"},{v:"only_me",l:"🔒 ฉันเท่านั้น"}];
+  const ev=[{v:"everyone",l:"ทุกคน"},{v:"friends",l:"เพื่อนเท่านั้น"},{v:"none",l:"ไม่มีใคร"}];
+  const Toggle=({label,desc,k})=>(
+    <div style={{padding:"12px 0",borderBottom:"1px solid "+C.border,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+      <div><div style={{fontSize:14,color:C.text,fontWeight:500}}>{label}</div>{desc&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>{desc}</div>}</div>
+      <div onClick={()=>set(k,!s[k])} style={{width:44,height:25,borderRadius:13,cursor:"pointer",background:s[k]?C.brand:"#ddd",position:"relative",transition:"background .2s",flexShrink:0}}>
+        <div style={{width:19,height:19,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:s[k]?22:3,transition:"left .2s",boxShadow:"0 1px 4px rgba(0,0,0,.2)"}}/>
+      </div>
+    </div>
+  );
+  const Select=({label,desc,k,opts})=>(
+    <div style={{padding:"12px 0",borderBottom:"1px solid "+C.border,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+      <div><div style={{fontSize:14,color:C.text,fontWeight:500}}>{label}</div>{desc&&<div style={{fontSize:12,color:C.muted,marginTop:2}}>{desc}</div>}</div>
+      <select value={s[k]} onChange={e=>set(k,e.target.value)} style={{padding:"6px 10px",borderRadius:10,border:"1px solid "+C.border,background:C.bg,color:C.sub,fontSize:13,outline:"none",flexShrink:0,fontFamily:"inherit"}}>{opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}</select>
+    </div>
+  );
+  const Sec=({title,children})=>(
+    <Card style={{marginBottom:12}}>
+      <div style={{padding:"4px 16px"}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,padding:"12px 0 4px",textTransform:"uppercase",letterSpacing:1.2}}>{title}</div>
+        {children}
+      </div>
+    </Card>
+  );
+  return(
+    <div>
+      <Card style={{marginBottom:12}}>
+        <div style={{padding:"16px"}}>
+          <div style={{fontSize:16,fontWeight:700,color:C.text}}>ความเป็นส่วนตัว 🔒</div>
+          <div style={{fontSize:13,color:C.muted,marginTop:4}}>ปรับว่าใครเห็นอะไรได้บ้าง</div>
+        </div>
+      </Card>
+      <Sec title="โพสต์"><Select label="โพสต์เริ่มต้น" desc="ค่าเริ่มต้นเวลาสร้างโพสต์ใหม่" k="postDef" opts={pv}/><Select label="ใครเห็นโพสต์ได้" k="whoSee" opts={pv}/><Select label="ใครเม้นได้" k="whoCmt" opts={ev}/></Sec>
+      <Sec title="โปรไฟล์"><Toggle label="แสดง mood" desc="ให้คนอื่นเห็น mood ของคุณ" k="showMood"/><Toggle label="แสดงสถานะออนไลน์" k="showOnline"/><Toggle label="แสดงเวลาออนไลน์ล่าสุด" k="showLast"/><Select label="ใครเห็นรายชื่อเพื่อน" k="friendList" opts={pv}/></Sec>
+      <Sec title="ข้อความและเสียง"><Select label="ใครส่งข้อความได้" k="whoMsg" opts={ev}/></Sec>
+      <Card>
+        <div style={{padding:"16px"}}>
+          <div style={{fontSize:14,fontWeight:700,color:C.red,marginBottom:10}}>โซนอันตราย ⚠️</div>
+          <button style={{width:"100%",padding:"10px",borderRadius:12,border:"1px solid #FECDD3",background:C.redL,color:C.red,cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:"inherit"}}>ปิดบัญชีชั่วคราว</button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ── Root ──────────────────────────────────────────────────
+const TABS=[
+  {key:"feed",   icon:"🏠", label:"ฟีด"},
+  {key:"chat",   icon:"💬", label:"แชท"},
+  {key:"voice",  icon:"🎙️", label:"ห้องเสียง"},
+  {key:"profile",icon:"👤", label:"โปรไฟล์"},
+  {key:"privacy",icon:"🔒", label:"ส่วนตัว"},
+];
+
+export default function App(){
+  const [page,setPage]=useState("feed");
+  const [posts,setPosts]=useState(INIT_POSTS);
+
+  return(
+    <div style={{fontFamily:"system-ui,-apple-system,sans-serif",minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column"}}>
+      <style>{`
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+        @keyframes pulse-border{0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,.4)}70%{box-shadow:0 0 0 6px rgba(16,185,129,0)}}
+        button,input,select,textarea{font-family:inherit}
+        ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#D1D5DB;border-radius:4px}
+      `}</style>
+
+      {/* Top nav */}
+      <div style={{background:"rgba(255,255,255,.92)",backdropFilter:"blur(12px)",borderBottom:"1px solid "+C.border,padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:20}}>
+        <div style={{display:"flex",alignItems:"center",gap:9}}>
+          <div style={{width:32,height:32,borderRadius:10,background:C.grad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,boxShadow:"0 2px 8px rgba(139,124,246,.4)"}}>💜</div>
+          <span style={{fontSize:18,fontWeight:800,background:C.grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>Warmly</span>
+        </div>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+          {TABS.map(t=>(
+            <button key={t.key} onClick={()=>setPage(t.key)} style={{padding:"6px 12px",borderRadius:20,border:"1px solid "+(page===t.key?C.brand:C.border),background:page===t.key?C.grad:"transparent",color:page===t.key?"#fff":C.sub,cursor:"pointer",fontSize:12,fontWeight:page===t.key?700:400,display:"flex",alignItems:"center",gap:5,transition:"all .2s",boxShadow:page===t.key?"0 2px 8px rgba(139,124,246,.35)":"none"}}>
+              <span style={{fontSize:13}}>{t.icon}</span>{t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{flex:1,maxWidth:640,width:"100%",margin:"0 auto",padding:page==="chat"?"0":"16px 16px 48px",boxSizing:"border-box"}}>
+        {page==="feed"    && <FeedPage posts={posts} setPosts={setPosts}/>}
+        {page==="chat"    && <ChatPage/>}
+        {page==="voice"   && <VoiceRoomsPage/>}
+        {page==="profile" && <ProfilePage posts={posts}/>}
+        {page==="privacy" && <PrivacyPage/>}
+      </div>
+    </div>
+  );
+}
