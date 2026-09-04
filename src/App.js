@@ -1,27 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
-
-// ── Custom Hook สำหรับบันทึกข้อมูลลงเครื่อง (ไม่หายเมื่อรีเฟรช) ──
-function useLocalStorage(key, initialValue) {
-  const [value, setValue] = useState(() => {
-    try {
-      const item = window.localStorage.getItem(key);
-      return item ? JSON.parse(item) : initialValue;
-    } catch (error) {
-      console.warn("Error reading localStorage", error);
-      return initialValue;
-    }
-  });
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(key, JSON.stringify(value));
-    } catch (error) {
-      console.warn("Error setting localStorage", error);
-    }
-  }, [key, value]);
-
-  return [value, setValue];
-}
+import { useState, useRef, useEffect } from "react";
 
 // ── Design Tokens ─────────────────────────────────────────
 const C = {
@@ -66,36 +43,48 @@ const INIT_VOICE_ROOMS = [
    members:[{init:"AR",name:"อาร์ม", bg:"#DBEAFE",tc:"#1E40AF",mic:true, kicked:false},
              {init:"MT",name:"มิ้นท์",bg:"#FCE7F3",tc:"#831843",mic:true, kicked:false}],
    playlist:[]},
+  {id:3,name:"คุยเล่นก่อนนอน",    vibe:"☕",hostId:"PM",
+   members:[{init:"PM",name:"แพม",  bg:"#D1FAE5",tc:"#064E3B",mic:true, kicked:false},
+             {init:"AR",name:"อาร์ม",bg:"#DBEAFE",tc:"#1E40AF",mic:false,kicked:false}],
+   playlist:[]},
 ];
 const INIT_POSTS = [
   {id:1,author:"หนูนก",init:"NK",bg:"#D1FAE5",tc:"#065F46",time:"2 นาทีที่แล้ว",content:"วันนี้เหงามากเลย ใครว่างคุยด้วยบ้าง 🌙",mood:"เหงา 🌙",privacy:"public",likes:12,liked:false,images:[],
    comments:[{id:1,author:"แพม",init:"PM",bg:"#D1FAE5",tc:"#064E3B",text:"มาคุยด้วยได้เลยนะ 🌸",time:"1น."}]},
   {id:2,author:"ไบรท์",init:"BR",bg:"#FEF3C7",tc:"#92400E",time:"1 ชม.",content:"อากาศดีมากวันนี้ ☀️ ออกไปนั่งข้างนอกสักพัก",mood:"สงบ ✨",privacy:"friends",likes:24,liked:true,
    images:["https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&q=80"],comments:[]},
+  {id:3,author:"มิ้นท์",init:"MT",bg:"#FCE7F3",tc:"#831843",time:"3 ชม.",content:"ใครชอบดูซีรีส์เกาหลีบ้าง 📺 แนะนำเรื่องหน่อยนะ",mood:"สนุก 🎉",privacy:"public",likes:8,liked:false,images:[],comments:[]},
+  {id:4,author:"แพม",init:"PM",bg:"#D1FAE5",tc:"#064E3B",time:"5 ชม.",content:"กาแฟสักแก้วในวันหยุด ☕ ชีวิตดี",mood:"สบายดี 😊",privacy:"public",likes:31,liked:false,
+   images:["https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=600&q=80"],comments:[]},
 ];
 const INIT_CHATS = {
   1:[{id:1,from:"them",text:"หวัดดีจ้า วันนี้เป็นยังไงบ้าง 😊",type:"text"}],
   2:[{id:1,from:"them",text:"เฮ้ มีอะไรเล่าให้ฟังมั้ย 👂",type:"text"}],
+  3:[{id:1,from:"them",text:"ง่วงมากเลยวันนี้ 😴",type:"text"}],
+  4:[{id:1,from:"them",text:"อยู่บ้านคนเดียวเหงาๆ",type:"text"}],
+  5:[{id:1,from:"them",text:"ใครอยากคุยบ้างมั้ย! 🙋",type:"text"}],
 };
 
 function getYoutubeId(url){
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-  const match = url.match(regExp);
-  return (match && match[2].length === 11) ? match[2] : null;
+  try {
+    const u = new URL(url);
+    if(u.hostname.includes("youtu.be")) return u.pathname.slice(1).split("?")[0];
+    return u.searchParams.get("v")||"";
+  } catch { return ""; }
 }
 function getYoutubeThumbnail(id){ return id?`https://img.youtube.com/vi/${id}/mqdefault.jpg`:""; }
 
 // ── Shared UI ─────────────────────────────────────────────
-function Av({init,bg,tc,size=40,online,isGrad, img}){
+function Av({init,bg,tc,size=40,online,isGrad}){
   return(
     <div style={{position:"relative",flexShrink:0}}>
       <div style={{width:size,height:size,borderRadius:"50%",
         background:isGrad?C.grad:(bg||"#EDE9FE"),
         color:isGrad?"#fff":(tc||C.brand),
         display:"flex",alignItems:"center",justifyContent:"center",
-        fontSize:size*.33,fontWeight:700, overflow:"hidden",
+        fontSize:size*.33,fontWeight:700,
         boxShadow:isGrad?"0 4px 12px rgba(124,58,237,.35)":"0 1px 4px rgba(0,0,0,.08)"}}>
-        {img ? <img src={img} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : init}
+        {init}
       </div>
       {online&&<div style={{position:"absolute",bottom:1,right:1,
         width:Math.max(8,size*.2),height:Math.max(8,size*.2),
@@ -145,7 +134,7 @@ function ImgGrid({images}){
 
 // ── Auth Page ─────────────────────────────────────────────
 function AuthPage({onLogin}){
-  const [mode,setMode]=useState("login"); 
+  const [mode,setMode]=useState("login"); // login | register | guest
   const [form,setForm]=useState({name:"",email:"",password:"",confirm:""});
   const [err,setErr]=useState("");
   const f = k => e => { setForm(p=>({...p,[k]:e.target.value})); setErr(""); };
@@ -160,30 +149,32 @@ function AuthPage({onLogin}){
   function submit(){
     if(mode==="guest"){
       if(!form.name.trim()){setErr("ใส่ชื่อที่ต้องการแสดงก่อนนะ");return;}
-      onLogin({name:form.name.trim(),email:"",isGuest:true, init:form.name.trim().substring(0,2).toUpperCase()});
+      onLogin({name:form.name.trim(),email:"",isGuest:true});
     } else if(mode==="register"){
       if(!form.name.trim()||!form.email.trim()||!form.password){setErr("กรอกข้อมูลให้ครบก่อนนะ");return;}
       if(form.password!==form.confirm){setErr("รหัสผ่านไม่ตรงกัน");return;}
-      onLogin({name:form.name.trim(),email:form.email.trim(),isGuest:false, init:form.name.trim().substring(0,2).toUpperCase()});
+      onLogin({name:form.name.trim(),email:form.email.trim(),isGuest:false});
     } else {
       if(!form.email.trim()||!form.password){setErr("กรอกอีเมลและรหัสผ่านก่อนนะ");return;}
-      // หากล็อกอินสำเร็จ จำลองการดึงชื่อ
-      onLogin({name:"คุณ",email:form.email.trim(),isGuest:false, init:"ME"});
+      onLogin({name:"สิทธิชัย",email:form.email.trim(),isGuest:false});
     }
   }
 
   return(
     <div style={{minHeight:"100vh",background:C.gradHero,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div style={{width:"100%",maxWidth:400}}>
+        {/* Logo */}
         <div style={{textAlign:"center",marginBottom:32}}>
           <div style={{width:64,height:64,borderRadius:20,background:"rgba(255,255,255,.15)",backdropFilter:"blur(12px)",border:"1px solid rgba(255,255,255,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,margin:"0 auto 14px"}}>💜</div>
           <div style={{fontSize:32,fontWeight:800,color:"#fff",letterSpacing:-.5}}>Warmly</div>
           <div style={{fontSize:14,color:"rgba(255,255,255,.65)",marginTop:6}}>พื้นที่อบอุ่นสำหรับทุกคน</div>
         </div>
+
         <Card style={{borderRadius:24,border:"1px solid rgba(255,255,255,.15)"}}>
           <div style={{padding:28}}>
+            {/* Tabs */}
             <div style={{display:"flex",background:"#F3F4F6",borderRadius:12,padding:4,marginBottom:22,gap:2}}>
-              {[["login","เข้าสู่ระบบ"],["register","สมัครสมาชิก"],["guest","ผู้เยี่ยมชม"]].map(([k,l])=>(
+              {[["login","เข้าสู่ระบบ"],["register","สมัครสมาชิก"],["guest","เข้าแบบผู้เยี่ยมชม"]].map(([k,l])=>(
                 <button key={k} onClick={()=>{setMode(k);setErr("");setForm({name:"",email:"",password:"",confirm:""});}}
                   style={{flex:1,padding:"7px 4px",borderRadius:9,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,
                     fontFamily:"inherit",background:mode===k?C.grad:"transparent",color:mode===k?"#fff":C.sub,transition:"all .2s"}}>
@@ -192,25 +183,45 @@ function AuthPage({onLogin}){
               ))}
             </div>
 
-            {mode==="guest" && (<>{inp("ชื่อที่ต้องการแสดง","name")}</>)}
-            {mode==="register" && (<>{inp("ชื่อที่ต้องการแสดง","name")}{inp("อีเมล","email","email")}{inp("รหัสผ่าน","password","password")}{inp("ยืนยันรหัสผ่าน","confirm","password")}</>)}
+            {mode==="guest" && (
+              <>
+                <div style={{textAlign:"center",marginBottom:16}}>
+                  <div style={{fontSize:32,marginBottom:8}}>👋</div>
+                  <div style={{fontSize:14,color:C.sub}}>เข้าใช้งานโดยไม่ต้องสมัครบัญชี</div>
+                </div>
+                {inp("ชื่อที่ต้องการแสดง","name")}
+              </>
+            )}
+            {mode==="register" && (
+              <>
+                {inp("ชื่อที่ต้องการแสดง","name")}
+                {inp("อีเมล (Gmail หรืออีเมลอื่น)","email","email")}
+                {inp("รหัสผ่าน","password","password")}
+                {inp("ยืนยันรหัสผ่าน","confirm","password")}
+              </>
+            )}
             {mode==="login" && (
               <>
                 {inp("อีเมล","email","email")}
                 {inp("รหัสผ่าน","password","password")}
-                <div style={{textAlign:"right",marginTop:-4,marginBottom:12}}><span style={{fontSize:12,color:C.brand,cursor:"pointer",fontWeight:500}}>ลืมรหัสผ่าน?</span></div>
+                <div style={{textAlign:"right",marginTop:-4,marginBottom:12}}>
+                  <span style={{fontSize:12,color:C.brand,cursor:"pointer",fontWeight:500}}>ลืมรหัสผ่าน?</span>
+                </div>
               </>
             )}
+
             {err&&<div style={{fontSize:13,color:C.red,marginBottom:12,padding:"8px 12px",background:C.redL,borderRadius:10,fontWeight:500}}>{err}</div>}
+
             <Btn onClick={submit} variant="primary" size="lg" style={{width:"100%",justifyContent:"center",borderRadius:14}}>
               {mode==="guest"?"เข้าสู่แอป 👋":mode==="register"?"สร้างบัญชี ✨":"เข้าสู่ระบบ 🔑"}
             </Btn>
+
             {mode==="login"&&(
               <div style={{marginTop:20}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
                   <div style={{flex:1,height:1,background:C.border}}/><span style={{fontSize:12,color:C.muted}}>หรือ</span><div style={{flex:1,height:1,background:C.border}}/>
                 </div>
-                <button onClick={()=>onLogin({name:"คุณ",email:"user@gmail.com",isGuest:false, init:"ME"})}
+                <button onClick={()=>onLogin({name:"สิทธิชัย",email:"user@gmail.com",isGuest:false})}
                   style={{width:"100%",padding:"10px",borderRadius:12,border:"1.5px solid "+C.border,background:"#fff",color:C.text,cursor:"pointer",fontSize:14,fontWeight:600,fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
                   <span style={{fontSize:18}}>🔵</span> เข้าสู่ระบบด้วย Google
                 </button>
@@ -232,7 +243,7 @@ function YoutubePlaylist({playlist,setPlaylist,isHost}){
 
   function add(){
     const id=getYoutubeId(url.trim());
-    if(!id){setErr("ลิงก์ YouTube ไม่ถูกต้อง (ตัวอย่าง: https://youtu.be/...)");return;}
+    if(!id){setErr("ลิงก์ YouTube ไม่ถูกต้อง");return;}
     if(playlist.find(p=>p.id===id)){setErr("เพลงนี้อยู่ใน playlist แล้ว");return;}
     const thumb=getYoutubeThumbnail(id);
     const t=title.trim()||"YouTube - "+id.slice(0,8)+"...";
@@ -245,8 +256,9 @@ function YoutubePlaylist({playlist,setPlaylist,isHost}){
     if(playing===id)setPlaying(null);
   }
 
-  function playVideo(item){
+  function openYT(item){
     setPlaying(item.id);
+    window.open(`https://www.youtube.com/watch?v=${item.id}`,"_blank");
   }
 
   return(
@@ -254,18 +266,13 @@ function YoutubePlaylist({playlist,setPlaylist,isHost}){
       <div style={{fontSize:13,fontWeight:700,color:C.brand,marginBottom:10,display:"flex",alignItems:"center",gap:7}}>
         🎵 Playlist ห้องนี้ <span style={{fontSize:11,fontWeight:400,color:C.muted}}>({playlist.length} เพลง)</span>
       </div>
-      
-      {/* ฝัง YouTube Iframe */}
-      {playing && (
-        <div style={{position:"relative", paddingBottom:"56.25%", height:0, marginBottom:16, borderRadius:12, overflow:"hidden", background:"#000", boxShadow:"0 4px 12px rgba(0,0,0,0.15)"}}>
-          <iframe src={`https://www.youtube.com/embed/${playing}?autoplay=1`} title="YouTube video player" style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",border:0}} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
-        </div>
-      )}
 
       {isHost&&(
         <div style={{background:"#FAFAFF",border:"1.5px dashed "+C.borderMid,borderRadius:14,padding:"12px 14px",marginBottom:12}}>
           <div style={{fontSize:12,fontWeight:600,color:C.sub,marginBottom:8}}>➕ เพิ่มเพลงจาก YouTube</div>
           <input value={url} onChange={e=>setUrl(e.target.value)} placeholder="วาง YouTube URL ที่นี่..." onKeyDown={e=>e.key==="Enter"&&add()}
+            style={{width:"100%",border:"1.5px solid "+C.border,borderRadius:10,padding:"8px 12px",fontSize:13,outline:"none",background:"#fff",color:C.text,boxSizing:"border-box",fontFamily:"inherit",marginBottom:7}}/>
+          <input value={title} onChange={e=>setTitle(e.target.value)} placeholder="ชื่อเพลง (ไม่บังคับ)" onKeyDown={e=>e.key==="Enter"&&add()}
             style={{width:"100%",border:"1.5px solid "+C.border,borderRadius:10,padding:"8px 12px",fontSize:13,outline:"none",background:"#fff",color:C.text,boxSizing:"border-box",fontFamily:"inherit",marginBottom:7}}/>
           {err&&<div style={{fontSize:12,color:C.red,marginBottom:7,fontWeight:500}}>{err}</div>}
           <Btn onClick={add} variant="primary" size="sm" style={{borderRadius:10}}>เพิ่มเพลง</Btn>
@@ -282,7 +289,7 @@ function YoutubePlaylist({playlist,setPlaylist,isHost}){
         {playlist.map((song,i)=>(
           <div key={song.id} style={{display:"flex",gap:10,alignItems:"center",padding:"9px 11px",borderRadius:12,
             background:playing===song.id?"#F5F3FF":"#fff",border:"1.5px solid "+(playing===song.id?C.brand:C.border),cursor:"pointer",transition:"all .2s"}}
-            onClick={()=>playVideo(song)}>
+            onClick={()=>openYT(song)}>
             <div style={{fontSize:13,fontWeight:700,color:C.muted,width:18,textAlign:"center",flexShrink:0}}>{i+1}</div>
             {song.thumb
               ?<img src={song.thumb} alt="" style={{width:44,height:32,borderRadius:7,objectFit:"cover",flexShrink:0,border:"1px solid "+C.border}}/>
@@ -290,7 +297,7 @@ function YoutubePlaylist({playlist,setPlaylist,isHost}){
             }
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:13,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{song.title}</div>
-              <div style={{fontSize:11,color:C.muted,marginTop:1}}>คลิกเพื่อเล่นในแอป ▷</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:1}}>YouTube • คลิกเพื่อเปิด</div>
             </div>
             <div style={{display:"flex",gap:5}}>
               <div style={{fontSize:14,color:playing===song.id?C.brand:C.muted}}>{playing===song.id?"▶️":"▷"}</div>
@@ -305,7 +312,7 @@ function YoutubePlaylist({playlist,setPlaylist,isHost}){
 }
 
 // ── Voice Rooms ───────────────────────────────────────────
-function VoiceRoomsPage({user, profile}){
+function VoiceRoomsPage({user}){
   const [rooms,setRooms]=useState(INIT_VOICE_ROOMS);
   const [inRoomId,setInRoomId]=useState(null);
   const [myMic,setMyMic]=useState(true);
@@ -321,7 +328,7 @@ function VoiceRoomsPage({user, profile}){
     setRooms(prev=>prev.map(room=>{
       if(room.id!==r.id)return room;
       if(room.members.find(m=>m.init===user.init))return room;
-      return {...room,members:[...room.members,{init:user.init,name:user.name,bg:"#EDE9FE",tc:C.brand,mic:true,kicked:false, img:profile?.avatar}]};
+      return {...room,members:[...room.members,{init:user.init,name:user.name,bg:"#EDE9FE",tc:C.brand,mic:true,kicked:false}]};
     }));
     setInRoomId(r.id);setMyMic(true);setShowPlaylist(false);
   }
@@ -353,7 +360,7 @@ function VoiceRoomsPage({user, profile}){
   function createRoom(){
     if(!newName.trim()){setNameErr("ใส่ชื่อห้องก่อนนะ");return;}
     const r={id:Date.now(),name:newName.trim(),vibe:"🎵",hostId:user.init,
-      members:[{init:user.init,name:user.name,bg:"#EDE9FE",tc:C.brand,mic:true,kicked:false, img:profile?.avatar}],
+      members:[{init:user.init,name:user.name,bg:"#EDE9FE",tc:C.brand,mic:true,kicked:false}],
       playlist:[]};
     setRooms(rs=>[r,...rs]);
     setInRoomId(r.id);setMyMic(true);setNewName("");setCreating(false);setNameErr("");
@@ -365,6 +372,7 @@ function VoiceRoomsPage({user, profile}){
 
   return(
     <div>
+      {/* Active Room Panel */}
       {inRoom&&(
         <Card style={{marginBottom:18,border:"1.5px solid "+C.brand,boxShadow:"0 4px 24px rgba(124,58,237,.18)"}}>
           <div style={{background:C.gradSoft,padding:"16px 18px",borderBottom:"1px solid "+C.border}}>
@@ -388,6 +396,8 @@ function VoiceRoomsPage({user, profile}){
                 <Btn onClick={leave} variant="danger" size="sm">📵 ออก</Btn>
               </div>
             </div>
+
+            {/* Members */}
             <div style={{display:"flex",gap:14,flexWrap:"wrap"}}>
               {inRoom.members.map((m,i)=>{
                 const isMe=m.init===user.init;
@@ -408,7 +418,7 @@ function VoiceRoomsPage({user, profile}){
                     )}
                     <div style={{padding:3,borderRadius:"50%",border:"3px solid "+(speaking?C.green:C.borderMid),
                       boxShadow:speaking?"0 0 12px rgba(16,185,129,.35)":"none",transition:"all .3s"}}>
-                      <Av init={m.init} bg={m.bg} tc={m.tc} isGrad={isMe} img={m.img} size={48}/>
+                      <Av init={m.init} bg={m.bg} tc={m.tc} isGrad={isMe} size={48}/>
                     </div>
                     <div style={{fontSize:12,color:C.brand,fontWeight:700,maxWidth:60,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isMe?"คุณ":m.name}</div>
                     <div style={{fontSize:11,padding:"2px 7px",borderRadius:20,background:speaking?"#D1FAE5":C.border,color:speaking?C.green:C.muted,fontWeight:600}}>
@@ -420,14 +430,19 @@ function VoiceRoomsPage({user, profile}){
               })}
             </div>
           </div>
+
           {showPlaylist&&(
             <div style={{padding:"0 18px 16px"}}>
-              <YoutubePlaylist playlist={inRoom.playlist} setPlaylist={pl=>updatePlaylist(inRoom.id,pl)} isHost={isHost}/>
+              <YoutubePlaylist
+                playlist={inRoom.playlist}
+                setPlaylist={pl=>updatePlaylist(inRoom.id,pl)}
+                isHost={isHost}/>
             </div>
           )}
         </Card>
       )}
 
+      {/* Header */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
         <div style={{fontSize:16,fontWeight:800,color:C.text}}>ห้องเสียง 🎙️</div>
         <Btn onClick={()=>setCreating(!creating)} variant={creating?"primary":"secondary"} size="sm">+ เปิดห้องใหม่</Btn>
@@ -468,8 +483,8 @@ function VoiceRoomsPage({user, profile}){
               </div>
               <div style={{display:"flex",gap:0}}>
                 {r.members.slice(0,7).map((m,i)=>(
-                  <div key={i} style={{width:30,height:30,borderRadius:"50%",background:m.bg||C.grad,color:m.tc||'#fff',display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,border:"2.5px solid #fff",marginLeft:i>0?-8:0,boxShadow:"0 1px 4px rgba(0,0,0,.1)", overflow:'hidden'}}>
-                    {m.img ? <img src={m.img} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : m.init}
+                  <div key={i} style={{width:30,height:30,borderRadius:"50%",background:m.bg,color:m.tc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,border:"2.5px solid #fff",marginLeft:i>0?-8:0,boxShadow:"0 1px 4px rgba(0,0,0,.1)"}}>
+                    {m.init}
                   </div>
                 ))}
                 {r.members.length>7&&<div style={{width:30,height:30,borderRadius:"50%",background:"#E5E7EB",color:C.sub,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,border:"2.5px solid #fff",marginLeft:-8}}>+{r.members.length-7}</div>}
@@ -483,22 +498,16 @@ function VoiceRoomsPage({user, profile}){
 }
 
 // ── PostCard ──────────────────────────────────────────────
-function PostCard({p,onLike,onComment, userProfile}){
+function PostCard({p,onLike,onComment}){
   const [open,setOpen]=useState(false);
   const [cmt,setCmt]=useState("");
   const [err,setErr]=useState("");
   function submit(){if(!cmt.trim()){setErr("เม้นอะไรก่อนนะ 😊");return;}onComment(p.id,cmt.trim());setCmt("");setErr("");}
-  
-  // ถ้าเป็นโพสต์ของเราเอง ให้ใช้รูปโปรไฟล์ปัจจุบัน
-  const isMe = p.init === "ME";
-  const avatar = isMe ? userProfile?.avatar : null;
-  const isGrad = isMe;
-
   return(
     <Card style={{marginBottom:14}}>
       <div style={{padding:"16px 16px 0"}}>
         <div style={{display:"flex",gap:12,marginBottom:12}}>
-          <Av init={p.init} bg={p.bg} tc={p.tc} size={42} img={avatar} isGrad={isGrad}/>
+          <Av init={p.init} bg={p.bg} tc={p.tc} size={42}/>
           <div style={{flex:1}}>
             <div style={{fontSize:14,fontWeight:700,color:C.text}}>{p.author}</div>
             <div style={{fontSize:12,color:C.muted,display:"flex",flexWrap:"wrap",gap:6,marginTop:3}}>
@@ -508,7 +517,7 @@ function PostCard({p,onLike,onComment, userProfile}){
             </div>
           </div>
         </div>
-        {p.content&&<div style={{fontSize:15,color:C.text,lineHeight:1.75,marginBottom:4, whiteSpace:'pre-wrap'}}>{p.content}</div>}
+        {p.content&&<div style={{fontSize:15,color:C.text,lineHeight:1.75,marginBottom:4}}>{p.content}</div>}
       </div>
       <ImgGrid images={p.images}/>
       <div style={{padding:"0 16px 14px"}}>
@@ -521,7 +530,7 @@ function PostCard({p,onLike,onComment, userProfile}){
           <div style={{marginTop:12}}>
             {p.comments.map(c=>(
               <div key={c.id} style={{display:"flex",gap:9,marginBottom:10}}>
-                <Av init={c.init} bg={c.bg} tc={c.tc} size={30} img={c.init==="ME"?userProfile?.avatar:null} isGrad={c.init==="ME"}/>
+                <Av init={c.init} bg={c.bg} tc={c.tc} size={30}/>
                 <div style={{background:C.bg,borderRadius:14,padding:"8px 13px",flex:1,border:"1px solid "+C.border}}>
                   <div style={{fontSize:12,fontWeight:700,color:C.text}}>{c.author} <span style={{fontWeight:400,color:C.muted,fontSize:11}}>{c.time}</span></div>
                   <div style={{fontSize:13,color:C.text,marginTop:3,lineHeight:1.5}}>{c.text}</div>
@@ -529,7 +538,7 @@ function PostCard({p,onLike,onComment, userProfile}){
               </div>
             ))}
             <div style={{display:"flex",gap:9,alignItems:"center",marginTop:6}}>
-              <Av init="ME" isGrad size={30} img={userProfile?.avatar}/>
+              <Av init="สต" isGrad size={30}/>
               <input value={cmt} onChange={e=>{setCmt(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&submit()}
                 placeholder="เม้นอะไรสักอย่าง..."
                 style={{flex:1,border:"1.5px solid "+C.border,borderRadius:20,padding:"8px 14px",fontSize:13,outline:"none",background:C.bg,color:C.text,fontFamily:"inherit"}}/>
@@ -543,7 +552,7 @@ function PostCard({p,onLike,onComment, userProfile}){
   );
 }
 
-function NewPostBox({onPost, user, profile}){
+function NewPostBox({onPost}){
   const [text,setText]=useState("");
   const [mood,setMood]=useState("");
   const [privacy,setPrivacy]=useState("public");
@@ -557,7 +566,7 @@ function NewPostBox({onPost, user, profile}){
     <Card style={{marginBottom:16}}>
       <div style={{padding:"16px 16px 14px"}}>
         <div style={{display:"flex",gap:12}}>
-          <Av init={user.init} img={profile?.avatar} isGrad size={42}/>
+          <Av init="สต" isGrad size={42}/>
           <textarea value={text} onChange={e=>{setText(e.target.value);setErr("");}} placeholder="คุณรู้สึกยังไงวันนี้? บอกเพื่อนๆบ้างนะ 💜"
             style={{flex:1,border:"1.5px solid "+C.border,borderRadius:14,padding:"10px 14px",fontSize:14,resize:"none",outline:"none",minHeight:74,lineHeight:1.6,background:"#FAFAFF",color:C.text,fontFamily:"inherit"}}/>
         </div>
@@ -591,15 +600,15 @@ function NewPostBox({onPost, user, profile}){
   );
 }
 
-function FeedPage({posts,setPosts, user, profile}){
+function FeedPage({posts,setPosts}){
   function handleLike(id){setPosts(ps=>ps.map(p=>p.id===id?{...p,liked:!p.liked,likes:p.liked?p.likes-1:p.likes+1}:p));}
-  function handleComment(id,text){setPosts(ps=>ps.map(p=>p.id===id?{...p,comments:[...p.comments,{id:Date.now(),author:user.name,init:user.init,bg:"#EDE9FE",tc:C.brand,text,time:"เมื่อกี้"}]}:p));}
-  function handlePost({text,mood,privacy,images}){setPosts(ps=>[{id:Date.now(),author:user.name,init:user.init,bg:"#EDE9FE",tc:C.brand,time:"เมื่อกี้",content:text,mood,privacy,likes:0,liked:false,images:images||[],comments:[]},...ps]);}
-  return(<div><NewPostBox onPost={handlePost} user={user} profile={profile}/>{posts.map(p=><PostCard key={p.id} p={p} onLike={handleLike} onComment={handleComment} userProfile={profile}/>)}</div>);
+  function handleComment(id,text){setPosts(ps=>ps.map(p=>p.id===id?{...p,comments:[...p.comments,{id:Date.now(),author:"สิทธิชัย",init:"สต",bg:"#EDE9FE",tc:C.brand,text,time:"เมื่อกี้"}]}:p));}
+  function handlePost({text,mood,privacy,images}){setPosts(ps=>[{id:Date.now(),author:"สิทธิชัย",init:"สต",bg:"#EDE9FE",tc:C.brand,time:"เมื่อกี้",content:text,mood,privacy,likes:0,liked:false,images:images||[],comments:[]},...ps]);}
+  return(<div><NewPostBox onPost={handlePost}/>{posts.map(p=><PostCard key={p.id} p={p} onLike={handleLike} onComment={handleComment}/>)}</div>);
 }
 
-function ChatPage({user, profile}){
-  const [chats,setChats]=useLocalStorage("warmly_chats", INIT_CHATS);
+function ChatPage(){
+  const [chats,setChats]=useState(INIT_CHATS);
   const [active,setActive]=useState(1);
   const [input,setInput]=useState("");
   const [voiceOn,setVoiceOn]=useState(false);
@@ -612,12 +621,9 @@ function ChatPage({user, profile}){
   const msgs=chats[active]||[];
   function send(){const txt=input.trim();if(!txt&&!chatImg)return;const nm=[];if(chatImg)nm.push({id:Date.now(),from:"me",type:"image",src:chatImg});if(txt)nm.push({id:Date.now()+1,from:"me",type:"text",text:txt});setChats(c=>({...c,[active]:[...(c[active]||[]),...nm]}));setInput("");setChatImg(null);setTimeout(()=>{const r=AUTO_REPLIES[Math.floor(Math.random()*AUTO_REPLIES.length)];setChats(c=>({...c,[active]:[...(c[active]||[]),{id:Date.now()+2,from:"them",type:"text",text:r}]}));},900+Math.random()*500);}
   function toggleVoice(){const next=!voiceOn;setVoiceOn(next);if(next){setChats(c=>({...c,[active]:[...(c[active]||[]),{id:Date.now(),from:"system",text:`🎙️ เปิดห้องเสียงแล้ว — รอ ${friend.name} รับสาย...`}]}));setTimeout(()=>setChats(c=>({...c,[active]:[...(c[active]||[]),{id:Date.now(),from:"system",text:`✅ ${friend.name} รับสายแล้ว! คุยได้เลย 💜`}]})),1400);}else{setChats(c=>({...c,[active]:[...(c[active]||[]),{id:Date.now(),from:"system",text:"📵 วางสายแล้ว"}]}));}}
-  
   return(
     <div style={{display:"flex",height:"calc(100vh - 112px)",minHeight:460}}>
-      {/* ซ่อนรายชื่อเพื่อนบนมือถือ */}
-      <style>{`@media(max-width:768px){ .chat-sidebar { display: none !important; } }`}</style>
-      <div className="chat-sidebar" style={{width:200,borderRight:"1px solid "+C.border,background:C.surface,display:"flex",flexDirection:"column",flexShrink:0}}>
+      <div style={{width:200,borderRight:"1px solid "+C.border,background:C.surface,display:"flex",flexDirection:"column",flexShrink:0}}>
         <div style={{padding:"14px 16px 10px",borderBottom:"1px solid "+C.border,fontSize:13,fontWeight:700,color:C.text}}>ข้อความ</div>
         <div style={{flex:1,overflowY:"auto"}}>
           {FRIENDS.map(f=>(
@@ -655,10 +661,10 @@ function ChatPage({user, profile}){
               </div>
             </div>
             <div style={{display:"flex",gap:16}}>
-              {[{init:user.init,isGrad:true,tc:"#fff",name:user.name,sp:true, img:profile?.avatar},{init:friend.init,bg:friend.bg,tc:friend.tc,name:friend.name,sp:false}].map((u,i)=>(
+              {[{init:"สต",isGrad:true,tc:"#fff",name:"คุณ",sp:true},{init:friend.init,bg:friend.bg,tc:friend.tc,name:friend.name,sp:false}].map((u,i)=>(
                 <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5}}>
                   <div style={{padding:3,borderRadius:"50%",border:"3px solid "+(u.sp?C.green:C.borderMid),boxShadow:u.sp?"0 0 10px rgba(16,185,129,.3)":"none"}}>
-                    <Av init={u.init} bg={u.bg} isGrad={u.isGrad} tc={u.tc} img={u.img} size={44}/>
+                    <Av init={u.init} bg={u.bg} isGrad={u.isGrad} tc={u.tc} size={44}/>
                   </div>
                   <div style={{fontSize:12,color:C.brand,fontWeight:700}}>{u.name}</div>
                   <div style={{fontSize:10,background:u.sp?"#D1FAE5":C.border,color:u.sp?C.green:C.muted,borderRadius:20,padding:"2px 7px",fontWeight:600}}>{u.sp?(micOn?"🎙️":"🔇"):"🎧"}</div>
@@ -698,33 +704,31 @@ function ChatPage({user, profile}){
   );
 }
 
-function ProfilePage({posts, user, profile, setProfile}){
+function ProfilePage({posts,user}){
+  const [bio,setBio]=useState("ชอบคุยเล่น • ฟังเพลง • หาเพื่อนใหม่ 💜");
+  const [mood,setMood]=useState("สบายดี 😊");
   const [editing,setEditing]=useState(false);
-  const [bioInput,setBioInput]=useState(profile.bio);
+  const [bioInput,setBioInput]=useState(bio);
   const [showMP,setShowMP]=useState(false);
-  
+  const [coverImg,setCoverImg]=useState(null);
+  const [avatarImg,setAvatarImg]=useState(null);
   const coverRef=useRef();const avatarRef=useRef();
-  const myPosts=posts.filter(p=>p.init===user.init);
-
-  const updateProfile = (key, val) => {
-    setProfile(p => ({...p, [key]: val}));
-  };
-
+  const myPosts=posts.filter(p=>p.author==="สิทธิชัย");
   return(
     <div>
       <Card style={{marginBottom:14,overflow:"hidden"}}>
-        <div style={{height:120,background:profile.cover?"transparent":C.gradHero,position:"relative",cursor:"pointer"}} onClick={()=>coverRef.current.click()}>
-          {profile.cover?<img src={profile.cover} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+        <div style={{height:120,background:coverImg?"transparent":C.gradHero,position:"relative",cursor:"pointer"}} onClick={()=>coverRef.current.click()}>
+          {coverImg?<img src={coverImg} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
           :<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",color:"rgba(255,255,255,.5)",fontSize:13,fontWeight:500}}>✏️ คลิกเพื่อเปลี่ยนรูปปก</div>}
-          <input ref={coverRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>updateProfile('cover', ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
+          <input ref={coverRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setCoverImg(ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
         </div>
         <div style={{padding:"0 20px 20px",position:"relative"}}>
           <div style={{position:"absolute",top:-36,left:20,cursor:"pointer"}} onClick={()=>avatarRef.current.click()}>
-            {profile.avatar
-              ?<div style={{width:70,height:70,borderRadius:"50%",overflow:"hidden",border:"4px solid #fff",boxShadow:"0 4px 16px rgba(124,58,237,.3)"}}><img src={profile.avatar} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/></div>
-              :<div style={{width:70,height:70,borderRadius:"50%",background:C.grad,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,fontWeight:700,border:"4px solid #fff",boxShadow:"0 4px 16px rgba(124,58,237,.3)"}}>{user.init}</div>
+            {avatarImg
+              ?<div style={{width:70,height:70,borderRadius:"50%",overflow:"hidden",border:"4px solid #fff",boxShadow:"0 4px 16px rgba(124,58,237,.3)"}}><img src={avatarImg} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/></div>
+              :<div style={{width:70,height:70,borderRadius:"50%",background:C.grad,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,fontWeight:700,border:"4px solid #fff",boxShadow:"0 4px 16px rgba(124,58,237,.3)"}}>สต</div>
             }
-            <input ref={avatarRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>updateProfile('avatar', ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
+            <input ref={avatarRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setAvatarImg(ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
           </div>
           <div style={{paddingTop:44}}>
             <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
@@ -733,14 +737,14 @@ function ProfilePage({posts, user, profile, setProfile}){
                 {user.isGuest&&<div style={{fontSize:11,background:"#FEF3C7",color:"#92400E",borderRadius:20,padding:"2px 8px",display:"inline-block",fontWeight:600,marginTop:3}}>👋 ผู้เยี่ยมชม</div>}
                 {editing?<div style={{marginTop:7,display:"flex",gap:7}}>
                   <input value={bioInput} onChange={e=>setBioInput(e.target.value)} style={{border:"1.5px solid "+C.border,borderRadius:10,padding:"6px 11px",fontSize:13,outline:"none",width:220,color:C.text,background:C.bg,fontFamily:"inherit"}}/>
-                  <Btn onClick={()=>{updateProfile('bio', bioInput);setEditing(false);}} variant="primary" size="sm">บันทึก</Btn>
-                </div>:<div style={{fontSize:13,color:C.sub,marginTop:5,lineHeight:1.5}}>{profile.bio}</div>}
+                  <Btn onClick={()=>{setBio(bioInput);setEditing(false);}} variant="primary" size="sm">บันทึก</Btn>
+                </div>:<div style={{fontSize:13,color:C.sub,marginTop:5,lineHeight:1.5}}>{bio}</div>}
                 <div style={{marginTop:9}}>
-                  <span onClick={()=>setShowMP(!showMP)} style={{background:"#F5F3FF",color:C.brand,borderRadius:20,padding:"4px 12px",fontSize:12,fontWeight:700,cursor:"pointer",border:"1px solid "+C.borderMid}}>✦ {profile.mood}</span>
+                  <span onClick={()=>setShowMP(!showMP)} style={{background:"#F5F3FF",color:C.brand,borderRadius:20,padding:"4px 12px",fontSize:12,fontWeight:700,cursor:"pointer",border:"1px solid "+C.borderMid}}>✦ {mood}</span>
                 </div>
-                {showMP&&<div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:8}}>{MOODS.map(m=><Btn key={m} onClick={()=>{updateProfile('mood', m);setShowMP(false);}} variant={profile.mood===m?"secondary":"ghost"} size="sm">{m}</Btn>)}</div>}
+                {showMP&&<div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:8}}>{MOODS.map(m=><Btn key={m} onClick={()=>{setMood(m);setShowMP(false);}} variant={mood===m?"secondary":"ghost"} size="sm">{m}</Btn>)}</div>}
               </div>
-              <Btn onClick={()=>{setEditing(!editing);setBioInput(profile.bio);}} variant="ghost" size="sm">✏️ แก้ไข</Btn>
+              <Btn onClick={()=>{setEditing(!editing);setBioInput(bio);}} variant="ghost" size="sm">✏️ แก้ไข</Btn>
             </div>
             <div style={{display:"flex",gap:28,marginTop:16,paddingTop:14,borderTop:"1px solid "+C.border}}>
               {[["48","เพื่อน"],[String(myPosts.length),"โพสต์"],["1.2k","การเข้าชม"]].map(([n,l])=>(
@@ -825,24 +829,14 @@ const TABS=[
 ];
 
 export default function App(){
-  // ใช้ localStorage สำหรับเก็บข้อมูลหลัก
-  const [user,setUser]=useLocalStorage("warmly_user", null);
+  const [user,setUser]=useState(null);
   const [page,setPage]=useState("feed");
-  const [posts,setPosts]=useLocalStorage("warmly_posts", INIT_POSTS);
-  
-  // โปรไฟล์ (รูป, bio)
-  const [profile, setProfile]=useLocalStorage("warmly_profile", {
-    bio: "ชอบคุยเล่น • ฟังเพลง • หาเพื่อนใหม่ 💜",
-    mood: "สบายดี 😊",
-    avatar: null,
-    cover: null
-  });
+  const [posts,setPosts]=useState(INIT_POSTS);
 
   if(!user) return <AuthPage onLogin={u=>setUser(u)}/>;
 
   return(
     <div style={{fontFamily:"system-ui,-apple-system,'Segoe UI',sans-serif",minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column"}}>
-      {/* ── CSS จัดการเลย์เอาต์มือถือ Bottom Navigation ── */}
       <style>{`
         *{box-sizing:border-box}
         button,input,select,textarea{font-family:inherit}
@@ -850,30 +844,6 @@ export default function App(){
         ::-webkit-scrollbar-track{background:transparent}
         ::-webkit-scrollbar-thumb{background:#DDD6FE;border-radius:4px}
         ::-webkit-scrollbar-thumb:hover{background:#C4B5FD}
-        
-        .desktop-tabs { display: flex; gap: 5px; flex-wrap: wrap; }
-        .mobile-tabs { display: none; }
-        .main-content { padding-bottom: 52px; }
-        
-        @media (max-width: 768px) {
-          .desktop-tabs { display: none !important; }
-          .mobile-tabs {
-            display: flex !important;
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(12px);
-            border-top: 1px solid ${C.border};
-            justify-content: space-around;
-            padding: 10px 5px;
-            padding-bottom: calc(10px + env(safe-area-inset-bottom));
-            z-index: 100;
-            box-shadow: 0 -4px 15px rgba(124, 58, 237, 0.05);
-          }
-          .main-content { padding-bottom: 100px !important; }
-        }
       `}</style>
 
       {/* Topbar */}
@@ -882,9 +852,7 @@ export default function App(){
           <div style={{width:34,height:34,borderRadius:10,background:C.grad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,boxShadow:"0 2px 8px rgba(124,58,237,.4)"}}>💜</div>
           <span style={{fontSize:19,fontWeight:800,background:C.grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",letterSpacing:-.5}}>Warmly</span>
         </div>
-        
-        {/* เมนูแท็บจอใหญ่ (คอม) */}
-        <div className="desktop-tabs">
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
           {TABS.map(t=>(
             <button key={t.key} onClick={()=>setPage(t.key)}
               style={{padding:"7px 13px",borderRadius:12,border:"1.5px solid "+(page===t.key?C.brand:C.border),background:page===t.key?C.grad:"transparent",color:page===t.key?"#fff":C.sub,cursor:"pointer",fontSize:12,fontWeight:page===t.key?700:500,display:"flex",alignItems:"center",gap:5,transition:"all .2s",boxShadow:page===t.key?"0 2px 10px rgba(124,58,237,.35)":"none",fontFamily:"inherit"}}>
@@ -892,34 +860,19 @@ export default function App(){
             </button>
           ))}
         </div>
-
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          {profile.avatar && (
-            <img src={profile.avatar} alt="Profile" style={{width:30, height:30, borderRadius:"50%", objectFit:"cover", border:"2px solid "+C.brand}} />
-          )}
-          <div style={{fontSize:13,color:C.sub,fontWeight:500, display: "none" /* ซ่อนชื่อยาวๆ บนมือถือถ้าแคบไป ให้ใช้คลาสซ่อนได้ถ้าอยาก */}} className="hide-mobile">{user.name}</div>
+          <div style={{fontSize:13,color:C.sub,fontWeight:500}}>{user.name}</div>
           {user.isGuest&&<span style={{fontSize:10,background:"#FEF3C7",color:"#92400E",borderRadius:20,padding:"2px 7px",fontWeight:700}}>Guest</span>}
-          <button onClick={()=>{setUser(null);}} style={{border:"1.5px solid "+C.border,borderRadius:10,background:"transparent",color:C.muted,cursor:"pointer",padding:"5px 10px",fontSize:12,fontFamily:"inherit"}}>ออก</button>
+          <button onClick={()=>setUser(null)} style={{border:"1.5px solid "+C.border,borderRadius:10,background:"transparent",color:C.muted,cursor:"pointer",padding:"5px 10px",fontSize:12,fontFamily:"inherit"}}>ออก</button>
         </div>
       </div>
 
-      <div className="main-content" style={{flex:1,maxWidth:660,width:"100%",margin:"0 auto",padding:page==="chat"?"0":"18px 16px",boxSizing:"border-box"}}>
-        {page==="feed"    && <FeedPage posts={posts} setPosts={setPosts} user={user} profile={profile}/>}
-        {page==="chat"    && <ChatPage user={user} profile={profile}/>}
-        {page==="voice"   && <VoiceRoomsPage user={user} profile={profile}/>}
-        {page==="profile" && <ProfilePage posts={posts} user={user} profile={profile} setProfile={setProfile}/>}
+      <div style={{flex:1,maxWidth:660,width:"100%",margin:"0 auto",padding:page==="chat"?"0":"18px 16px 52px",boxSizing:"border-box"}}>
+        {page==="feed"    && <FeedPage posts={posts} setPosts={setPosts}/>}
+        {page==="chat"    && <ChatPage/>}
+        {page==="voice"   && <VoiceRoomsPage user={{...user,init:"สต"}}/>}
+        {page==="profile" && <ProfilePage posts={posts} user={user}/>}
         {page==="privacy" && <PrivacyPage/>}
-      </div>
-
-      {/* เมนูแท็บจอมือถือ (Bottom Nav) */}
-      <div className="mobile-tabs">
-        {TABS.map(t=>(
-          <button key={t.key} onClick={()=>setPage(t.key)}
-            style={{flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3, padding:"8px 0", background:"transparent", border:"none", cursor:"pointer", color:page===t.key?C.brand:C.muted}}>
-            <div style={{fontSize:18, filter:page===t.key?"drop-shadow(0 2px 4px rgba(124,58,237,0.3))":""}}>{t.icon}</div>
-            <div style={{fontSize:10, fontWeight:page===t.key?700:500}}>{t.label}</div>
-          </button>
-        ))}
       </div>
     </div>
   );
