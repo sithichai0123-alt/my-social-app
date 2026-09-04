@@ -78,8 +78,10 @@ const INIT_CHATS = {
   2:[{id:1,from:"them",text:"เฮ้ มีอะไรเล่าให้ฟังมั้ย 👂",type:"text"}],
 };
 
+// ฟังก์ชันดึง Video ID จากลิงก์ YouTube ที่ครอบคลุมทุกรูปแบบ
 function getYoutubeId(url){
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  if (!url) return null;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
   const match = url.match(regExp);
   return (match && match[2].length === 11) ? match[2] : null;
 }
@@ -143,33 +145,15 @@ function ImgGrid({images}){
   );
 }
 
-// ── Auth Page ─────────────────────────────────────────────
+// ── Auth Page (เหลือเฉพาะ Gmail และ ผู้เยี่ยมชม) ────────────
 function AuthPage({onLogin}){
-  const [mode,setMode]=useState("login"); 
-  const [form,setForm]=useState({name:"",email:"",password:"",confirm:""});
+  const [mode,setMode]=useState("guest"); // guest | login
+  const [form,setForm]=useState({name:""});
   const [err,setErr]=useState("");
-  const f = k => e => { setForm(p=>({...p,[k]:e.target.value})); setErr(""); };
 
-  const inp = (placeholder,k,type="text") => (
-    <input type={type} placeholder={placeholder} value={form[k]} onChange={f(k)}
-      style={{width:"100%",border:"1.5px solid "+C.border,borderRadius:12,padding:"11px 16px",
-        fontSize:14,outline:"none",background:"#FAFAFF",color:C.text,boxSizing:"border-box",
-        fontFamily:"inherit",marginBottom:10,transition:"border .15s"}}/>
-  );
-
-  function submit(){
-    if(mode==="guest"){
-      if(!form.name.trim()){setErr("ใส่ชื่อที่ต้องการแสดงก่อนนะ");return;}
-      onLogin({name:form.name.trim(),email:"",isGuest:true, init:form.name.trim().substring(0,2).toUpperCase()});
-    } else if(mode==="register"){
-      if(!form.name.trim()||!form.email.trim()||!form.password){setErr("กรอกข้อมูลให้ครบก่อนนะ");return;}
-      if(form.password!==form.confirm){setErr("รหัสผ่านไม่ตรงกัน");return;}
-      onLogin({name:form.name.trim(),email:form.email.trim(),isGuest:false, init:form.name.trim().substring(0,2).toUpperCase()});
-    } else {
-      if(!form.email.trim()||!form.password){setErr("กรอกอีเมลและรหัสผ่านก่อนนะ");return;}
-      // หากล็อกอินสำเร็จ จำลองการดึงชื่อ
-      onLogin({name:"คุณ",email:form.email.trim(),isGuest:false, init:"ME"});
-    }
+  function submitGuest(){
+    if(!form.name.trim()){setErr("ใส่ชื่อที่ต้องการแสดงก่อนนะ");return;}
+    onLogin({name:form.name.trim(),email:"",isGuest:true, init:form.name.trim().substring(0,2).toUpperCase()});
   }
 
   return(
@@ -182,37 +166,36 @@ function AuthPage({onLogin}){
         </div>
         <Card style={{borderRadius:24,border:"1px solid rgba(255,255,255,.15)"}}>
           <div style={{padding:28}}>
+            {/* Tabs เลือกเฉพาะ ผู้เยี่ยมชม หรือ Google */}
             <div style={{display:"flex",background:"#F3F4F6",borderRadius:12,padding:4,marginBottom:22,gap:2}}>
-              {[["login","เข้าสู่ระบบ"],["register","สมัครสมาชิก"],["guest","ผู้เยี่ยมชม"]].map(([k,l])=>(
-                <button key={k} onClick={()=>{setMode(k);setErr("");setForm({name:"",email:"",password:"",confirm:""});}}
-                  style={{flex:1,padding:"7px 4px",borderRadius:9,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,
+              {[["guest","ผู้เยี่ยมชม"],["login","เข้าสู่ระบบด้วย Gmail"]].map(([k,l])=>(
+                <button key={k} onClick={()=>{setMode(k);setErr("");}}
+                  style={{flex:1,padding:"8px 4px",borderRadius:9,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,
                     fontFamily:"inherit",background:mode===k?C.grad:"transparent",color:mode===k?"#fff":C.sub,transition:"all .2s"}}>
                   {l}
                 </button>
               ))}
             </div>
 
-            {mode==="guest" && (<>{inp("ชื่อที่ต้องการแสดง","name")}</>)}
-            {mode==="register" && (<>{inp("ชื่อที่ต้องการแสดง","name")}{inp("อีเมล","email","email")}{inp("รหัสผ่าน","password","password")}{inp("ยืนยันรหัสผ่าน","confirm","password")}</>)}
-            {mode==="login" && (
+            {mode==="guest" ? (
               <>
-                {inp("อีเมล","email","email")}
-                {inp("รหัสผ่าน","password","password")}
-                <div style={{textAlign:"right",marginTop:-4,marginBottom:12}}><span style={{fontSize:12,color:C.brand,cursor:"pointer",fontWeight:500}}>ลืมรหัสผ่าน?</span></div>
-              </>
-            )}
-            {err&&<div style={{fontSize:13,color:C.red,marginBottom:12,padding:"8px 12px",background:C.redL,borderRadius:10,fontWeight:500}}>{err}</div>}
-            <Btn onClick={submit} variant="primary" size="lg" style={{width:"100%",justifyContent:"center",borderRadius:14}}>
-              {mode==="guest"?"เข้าสู่แอป 👋":mode==="register"?"สร้างบัญชี ✨":"เข้าสู่ระบบ 🔑"}
-            </Btn>
-            {mode==="login"&&(
-              <div style={{marginTop:20}}>
-                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-                  <div style={{flex:1,height:1,background:C.border}}/><span style={{fontSize:12,color:C.muted}}>หรือ</span><div style={{flex:1,height:1,background:C.border}}/>
+                <div style={{textAlign:"center",marginBottom:16}}>
+                  <div style={{fontSize:32,marginBottom:8}}>👋</div>
+                  <div style={{fontSize:14,color:C.sub}}>เข้าใช้งานด้วยชื่อเล่นของคุณได้ทันที</div>
                 </div>
-                <button onClick={()=>onLogin({name:"คุณ",email:"user@gmail.com",isGuest:false, init:"ME"})}
-                  style={{width:"100%",padding:"10px",borderRadius:12,border:"1.5px solid "+C.border,background:"#fff",color:C.text,cursor:"pointer",fontSize:14,fontWeight:600,fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
-                  <span style={{fontSize:18}}>🔵</span> เข้าสู่ระบบด้วย Google
+                <input type="text" placeholder="ชื่อที่ต้องการแสดง" value={form.name} onChange={e=>{setForm({name:e.target.value});setErr("");}}
+                  style={{width:"100%",border:"1.5px solid "+C.border,borderRadius:12,padding:"11px 16px",fontSize:14,outline:"none",background:"#FAFAFF",color:C.text,boxSizing:"border-box",fontFamily:"inherit",marginBottom:12}}/>
+                {err&&<div style={{fontSize:13,color:C.red,marginBottom:12,padding:"8px 12px",background:C.redL,borderRadius:10,fontWeight:500}}>{err}</div>}
+                <Btn onClick={submitGuest} variant="primary" size="lg" style={{width:"100%",justifyContent:"center",borderRadius:14}}>
+                  เข้าสู่แอป 👋
+                </Btn>
+              </>
+            ) : (
+              <div style={{textAlign:"center",padding:"10px 0"}}>
+                <div style={{fontSize:14,color:C.sub,marginBottom:16}}>เชื่อมต่อบัญชี Google ของคุณเพื่อเริ่มต้นใช้งานอย่างรวดเร็ว</div>
+                <button onClick={()=>onLogin({name:"สิทธิชัย",email:"user@gmail.com",isGuest:false, init:"สต"})}
+                  style={{width:"100%",padding:"12px",borderRadius:14,border:"1.5px solid "+C.border,background:"#fff",color:C.text,cursor:"pointer",fontSize:14,fontWeight:600,fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:10,boxShadow:"0 2px 8px rgba(0,0,0,0.05)"}}>
+                  <span style={{fontSize:18}}>🔵</span> เข้าสู่ระบบด้วย Gmail
                 </button>
               </div>
             )}
@@ -232,10 +215,10 @@ function YoutubePlaylist({playlist,setPlaylist,isHost}){
 
   function add(){
     const id=getYoutubeId(url.trim());
-    if(!id){setErr("ลิงก์ YouTube ไม่ถูกต้อง (ตัวอย่าง: https://youtu.be/...)");return;}
+    if(!id){setErr("ลิงก์ YouTube ไม่ถูกต้อง ตรวจสอบลิงก์อีกครั้งนะ");return;}
     if(playlist.find(p=>p.id===id)){setErr("เพลงนี้อยู่ใน playlist แล้ว");return;}
     const thumb=getYoutubeThumbnail(id);
-    const t=title.trim()||"YouTube - "+id.slice(0,8)+"...";
+    const t=title.trim()||"YouTube Video - "+id.slice(0,6);
     setPlaylist(prev=>[...prev,{id,title:t,thumb,url:url.trim()}]);
     setUrl("");setTitle("");setErr("");
   }
@@ -245,17 +228,13 @@ function YoutubePlaylist({playlist,setPlaylist,isHost}){
     if(playing===id)setPlaying(null);
   }
 
-  function playVideo(item){
-    setPlaying(item.id);
-  }
-
   return(
     <div style={{marginTop:14,borderTop:"1px solid "+C.border,paddingTop:14}}>
       <div style={{fontSize:13,fontWeight:700,color:C.brand,marginBottom:10,display:"flex",alignItems:"center",gap:7}}>
         🎵 Playlist ห้องนี้ <span style={{fontSize:11,fontWeight:400,color:C.muted}}>({playlist.length} เพลง)</span>
       </div>
       
-      {/* ฝัง YouTube Iframe */}
+      {/* เครื่องเล่น YouTube Iframe เล่นในแอปจริง */}
       {playing && (
         <div style={{position:"relative", paddingBottom:"56.25%", height:0, marginBottom:16, borderRadius:12, overflow:"hidden", background:"#000", boxShadow:"0 4px 12px rgba(0,0,0,0.15)"}}>
           <iframe src={`https://www.youtube.com/embed/${playing}?autoplay=1`} title="YouTube video player" style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",border:0}} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
@@ -265,7 +244,7 @@ function YoutubePlaylist({playlist,setPlaylist,isHost}){
       {isHost&&(
         <div style={{background:"#FAFAFF",border:"1.5px dashed "+C.borderMid,borderRadius:14,padding:"12px 14px",marginBottom:12}}>
           <div style={{fontSize:12,fontWeight:600,color:C.sub,marginBottom:8}}>➕ เพิ่มเพลงจาก YouTube</div>
-          <input value={url} onChange={e=>setUrl(e.target.value)} placeholder="วาง YouTube URL ที่นี่..." onKeyDown={e=>e.key==="Enter"&&add()}
+          <input value={url} onChange={e=>setUrl(e.target.value)} placeholder="วาง YouTube URL เช่น https://youtu.be/..." onKeyDown={e=>e.key==="Enter"&&add()}
             style={{width:"100%",border:"1.5px solid "+C.border,borderRadius:10,padding:"8px 12px",fontSize:13,outline:"none",background:"#fff",color:C.text,boxSizing:"border-box",fontFamily:"inherit",marginBottom:7}}/>
           {err&&<div style={{fontSize:12,color:C.red,marginBottom:7,fontWeight:500}}>{err}</div>}
           <Btn onClick={add} variant="primary" size="sm" style={{borderRadius:10}}>เพิ่มเพลง</Btn>
@@ -282,7 +261,7 @@ function YoutubePlaylist({playlist,setPlaylist,isHost}){
         {playlist.map((song,i)=>(
           <div key={song.id} style={{display:"flex",gap:10,alignItems:"center",padding:"9px 11px",borderRadius:12,
             background:playing===song.id?"#F5F3FF":"#fff",border:"1.5px solid "+(playing===song.id?C.brand:C.border),cursor:"pointer",transition:"all .2s"}}
-            onClick={()=>playVideo(song)}>
+            onClick={()=>setPlaying(song.id)}>
             <div style={{fontSize:13,fontWeight:700,color:C.muted,width:18,textAlign:"center",flexShrink:0}}>{i+1}</div>
             {song.thumb
               ?<img src={song.thumb} alt="" style={{width:44,height:32,borderRadius:7,objectFit:"cover",flexShrink:0,border:"1px solid "+C.border}}/>
@@ -290,7 +269,7 @@ function YoutubePlaylist({playlist,setPlaylist,isHost}){
             }
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:13,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{song.title}</div>
-              <div style={{fontSize:11,color:C.muted,marginTop:1}}>คลิกเพื่อเล่นในแอป ▷</div>
+              <div style={{fontSize:11,color:C.muted,marginTop:1}}>คลิกเพื่อเล่นเพลง ▷</div>
             </div>
             <div style={{display:"flex",gap:5}}>
               <div style={{fontSize:14,color:playing===song.id?C.brand:C.muted}}>{playing===song.id?"▶️":"▷"}</div>
@@ -489,7 +468,6 @@ function PostCard({p,onLike,onComment, userProfile}){
   const [err,setErr]=useState("");
   function submit(){if(!cmt.trim()){setErr("เม้นอะไรก่อนนะ 😊");return;}onComment(p.id,cmt.trim());setCmt("");setErr("");}
   
-  // ถ้าเป็นโพสต์ของเราเอง ให้ใช้รูปโปรไฟล์ปัจจุบัน
   const isMe = p.init === "ME";
   const avatar = isMe ? userProfile?.avatar : null;
   const isGrad = isMe;
@@ -615,7 +593,6 @@ function ChatPage({user, profile}){
   
   return(
     <div style={{display:"flex",height:"calc(100vh - 112px)",minHeight:460}}>
-      {/* ซ่อนรายชื่อเพื่อนบนมือถือ */}
       <style>{`@media(max-width:768px){ .chat-sidebar { display: none !important; } }`}</style>
       <div className="chat-sidebar" style={{width:200,borderRight:"1px solid "+C.border,background:C.surface,display:"flex",flexDirection:"column",flexShrink:0}}>
         <div style={{padding:"14px 16px 10px",borderBottom:"1px solid "+C.border,fontSize:13,fontWeight:700,color:C.text}}>ข้อความ</div>
@@ -825,12 +802,10 @@ const TABS=[
 ];
 
 export default function App(){
-  // ใช้ localStorage สำหรับเก็บข้อมูลหลัก
   const [user,setUser]=useLocalStorage("warmly_user", null);
   const [page,setPage]=useState("feed");
   const [posts,setPosts]=useLocalStorage("warmly_posts", INIT_POSTS);
   
-  // โปรไฟล์ (รูป, bio)
   const [profile, setProfile]=useLocalStorage("warmly_profile", {
     bio: "ชอบคุยเล่น • ฟังเพลง • หาเพื่อนใหม่ 💜",
     mood: "สบายดี 😊",
@@ -842,7 +817,6 @@ export default function App(){
 
   return(
     <div style={{fontFamily:"system-ui,-apple-system,'Segoe UI',sans-serif",minHeight:"100vh",background:C.bg,display:"flex",flexDirection:"column"}}>
-      {/* ── CSS จัดการเลย์เอาต์มือถือ Bottom Navigation ── */}
       <style>{`
         *{box-sizing:border-box}
         button,input,select,textarea{font-family:inherit}
@@ -883,7 +857,6 @@ export default function App(){
           <span style={{fontSize:19,fontWeight:800,background:C.grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",letterSpacing:-.5}}>Warmly</span>
         </div>
         
-        {/* เมนูแท็บจอใหญ่ (คอม) */}
         <div className="desktop-tabs">
           {TABS.map(t=>(
             <button key={t.key} onClick={()=>setPage(t.key)}
@@ -897,9 +870,9 @@ export default function App(){
           {profile.avatar && (
             <img src={profile.avatar} alt="Profile" style={{width:30, height:30, borderRadius:"50%", objectFit:"cover", border:"2px solid "+C.brand}} />
           )}
-          <div style={{fontSize:13,color:C.sub,fontWeight:500, display: "none" /* ซ่อนชื่อยาวๆ บนมือถือถ้าแคบไป ให้ใช้คลาสซ่อนได้ถ้าอยาก */}} className="hide-mobile">{user.name}</div>
+          <div style={{fontSize:13,color:C.sub,fontWeight:500}}>{user.name}</div>
           {user.isGuest&&<span style={{fontSize:10,background:"#FEF3C7",color:"#92400E",borderRadius:20,padding:"2px 7px",fontWeight:700}}>Guest</span>}
-          <button onClick={()=>{setUser(null);}} style={{border:"1.5px solid "+C.border,borderRadius:10,background:"transparent",color:C.muted,cursor:"pointer",padding:"5px 10px",fontSize:12,fontFamily:"inherit"}}>ออก</button>
+          <button onClick={()=>setUser(null)} style={{border:"1.5px solid "+C.border,borderRadius:10,background:"transparent",color:C.muted,cursor:"pointer",padding:"5px 10px",fontSize:12,fontFamily:"inherit"}}>ออก</button>
         </div>
       </div>
 
@@ -911,7 +884,6 @@ export default function App(){
         {page==="privacy" && <PrivacyPage/>}
       </div>
 
-      {/* เมนูแท็บจอมือถือ (Bottom Nav) */}
       <div className="mobile-tabs">
         {TABS.map(t=>(
           <button key={t.key} onClick={()=>setPage(t.key)}
