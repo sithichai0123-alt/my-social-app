@@ -583,7 +583,7 @@ function ChatPage() {
   function toggleVoice(){const nx=!voiceOn;setVoiceOn(nx);const sys={id:"sy"+Date.now(),from:"system",text:nx?`🎙️ เปิดห้องเสียงแล้ว — รอ ${friend.name} รับสาย...`:"📵 วางสายแล้ว"};setChats(c=>({...c,[active]:[...(c[active]||[]),sys]}));if(nx)setTimeout(()=>setChats(c=>({...c,[active]:[...(c[active]||[]),{id:"sy2"+Date.now(),from:"system",text:`✅ ${friend.name} รับสายแล้ว! 💜`}]})),1400);}
 
   return (
-    <div style={{ display:"flex", height:"calc(100dvh - 56px)", overflow:"hidden" }}>
+    <div style={{ display:"flex", height:"calc(100dvh - 112px)", overflow:"hidden" }}>
       {/* Sidebar */}
       <div style={{ width:64, borderRight:"1px solid "+T.border, background:T.surface, display:"flex", flexDirection:"column", alignItems:"center", paddingTop:10, gap:4, flexShrink:0 }}>
         {FRIENDS.map(f=>(
