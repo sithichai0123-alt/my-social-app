@@ -27,8 +27,18 @@ const T = {
 // Persistent Storage (localStorage)
 // ─────────────────────────────────────────────
 const store = {
-  get: (k, def) => { try { const v = localStorage.getItem("wm_"+k); return v ? JSON.parse(v) : def; } catch { return def; } },
-  set: (k, v)  => { try { localStorage.setItem("wm_"+k, JSON.stringify(v)); } catch {} },
+  get: (k, def) => {
+    try {
+      const v = localStorage.getItem("wm_"+k);
+      if (!v) return def;
+      const parsed = JSON.parse(v);
+      // ถ้า expect array แต่ได้ค่าอื่นมา ให้ใช้ default แทน
+      if (Array.isArray(def) && !Array.isArray(parsed)) return def;
+      return parsed;
+    } catch { return def; }
+  },
+  set: (k, v) => { try { localStorage.setItem("wm_"+k, JSON.stringify(v)); } catch {} },
+  clear: (k)  => { try { localStorage.removeItem("wm_"+k); } catch {} },
 };
 
 // ─────────────────────────────────────────────
@@ -795,12 +805,21 @@ const TABS = [
 export default function App() {
   const [user, setUser] = useState(()=>store.get("user",null));
   const [page, setPage] = useState("feed");
-  const [posts, setPosts] = useState(()=>store.get("posts",SEED_POSTS));
+  const [posts, setPosts] = useState(()=>{
+    const saved = store.get("posts", SEED_POSTS);
+    // ป้องกัน t.map is not a function — ถ้าไม่ใช่ array ให้ reset
+    return Array.isArray(saved) ? saved : SEED_POSTS;
+  });
 
   // persist posts
   useEffect(()=>{ store.set("posts",posts); },[posts]);
 
-  function handleLogout() { store.set("user",null); setUser(null); }
+  function handleLogout() { store.clear("user"); setUser(null); }
+  function handleResetData() {
+    ["posts","bio","mood","coverImg","avatarImg"].forEach(k => store.clear(k));
+    setPosts(SEED_POSTS);
+    alert("รีเซ็ตข้อมูลแล้ว ✅");
+  }
 
   if (!user) return <AuthPage onLogin={setUser}/>;
 
@@ -824,6 +843,7 @@ export default function App() {
         <div style={{ display:"flex", alignItems:"center", gap:7 }}>
           <span style={{ fontSize:13, color:T.sub, fontWeight:500 }}>{user.name}</span>
           {user.isGuest && <Chip active color={T.yellow}>Guest</Chip>}
+          <button onClick={handleResetData} style={{ border:"1px solid "+T.border,borderRadius:9,background:"transparent",color:T.muted,cursor:"pointer",padding:"4px 9px",fontSize:11,fontFamily:"inherit" }} title="รีเซ็ตถ้าแอปค้าง">🔄</button>
           <button onClick={handleLogout} style={{ border:"1px solid "+T.border,borderRadius:9,background:"transparent",color:T.muted,cursor:"pointer",padding:"4px 9px",fontSize:11,fontFamily:"inherit" }}>ออก</button>
         </div>
       </div>
