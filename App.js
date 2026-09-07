@@ -1,261 +1,501 @@
-import React, { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 
-// ── Design Tokens ─────────────────────────────────────────
-const C = {
-  brand:   "#8B7CF6",
-  brand2:  "#C084FC",
-  grad:    "linear-gradient(135deg,#8B7CF6 0%,#C084FC 100%)",
-  gradSoft:"linear-gradient(135deg,#EDE9FE 0%,#FAE8FF 100%)",
-  gradCard:"linear-gradient(160deg,#F5F3FF 0%,#FDF4FF 100%)",
-  surface: "#FFFFFF",
-  bg:      "#F8F7FF",
-  border:  "#EDE9FE",
-  text:    "#1E1B2E",
-  sub:     "#7C7B8A",
-  muted:   "#B8B6C8",
-  green:   "#10B981",
-  red:     "#F43F5E",
-  redL:    "#FFF1F2",
+// ─────────────────────────────────────────────
+// Design System
+// ─────────────────────────────────────────────
+const T = {
+  bg:       "#0F0E17",
+  surface:  "#1A1825",
+  card:     "#221F33",
+  cardHov:  "#2A2640",
+  border:   "#2E2A45",
+  borderHi: "#4F46A8",
+  brand:    "#7C5CFC",
+  brand2:   "#A78BFA",
+  brandGrad:"linear-gradient(135deg,#7C5CFC,#A78BFA)",
+  text:     "#F0EEFF",
+  sub:      "#9B94C4",
+  muted:    "#5C5780",
+  green:    "#10B981",
+  red:      "#F43F5E",
+  redBg:    "rgba(244,63,94,.12)",
+  yellow:   "#F59E0B",
+  glass:    "rgba(34,31,51,.7)",
 };
 
-const FRIENDS=[
-  {id:1,name:"หนูนก",init:"NK",bg:"#D1FAE5",tc:"#065F46",online:true, mood:"เหงา"},
-  {id:2,name:"อาร์ม", init:"AR",bg:"#DBEAFE",tc:"#1E40AF",online:true, mood:"สนุก"},
-  {id:3,name:"มิ้นท์",init:"MT",bg:"#FCE7F3",tc:"#831843",online:false,mood:"ง่วง"},
-  {id:4,name:"ไบรท์",init:"BR",bg:"#FEF3C7",tc:"#78350F",online:true, mood:"สงบ"},
-  {id:5,name:"แพม",  init:"PM",bg:"#D1FAE5",tc:"#064E3B",online:true, mood:"สบายดี"},
-];
-const MOODS=["สบายดี 😊","เหงา 🌙","สนุก 🎉","เครียด 😮‍💨","ง่วง 😴","สงบ ✨","ตื่นเต้น ⚡","โดดเดี่ยว 🫥"];
-const PV_LBL={public:"สาธารณะ",friends:"เพื่อนเท่านั้น",only_me:"ฉันเท่านั้น"};
-const PV_ICO={public:"🌐",friends:"👥",only_me:"🔒"};
-const AUTO_REPLIES=["อ่อ จริงๆ เหรอ 😊","รู้สึกแบบเดียวกันเลย 💜","ฮ่าๆ น่ารักมาก 🥰","แล้วยังไงต่อล่ะ?","ใช่เลย! เห็นด้วย 100%","555 โอเคมาก","เดี๋ยวเล่าให้ฟังนะ 🎵"];
-
-const PLAYLIST=[
-  {id:1,title:"Lofi Chill Beats",artist:"Lofi Girl",emoji:"🌙",duration:"3:42",color:"#8B7CF6"},
-  {id:2,title:"Late Night Drive",artist:"Neon Dreams",emoji:"🌃",duration:"4:15",color:"#C084FC"},
-  {id:3,title:"Rainy Afternoon",artist:"Café Sounds",emoji:"☕",duration:"3:58",color:"#60A5FA"},
-  {id:4,title:"Golden Hour",artist:"Indie Vibes",emoji:"🌅",duration:"4:30",color:"#F59E0B"},
-  {id:5,title:"Midnight Feels",artist:"ChillWave",emoji:"🎸",duration:"5:01",color:"#10B981"},
-  {id:6,title:"Sunday Morning",artist:"Acoustic Soul",emoji:"🌸",duration:"3:22",color:"#F43F5E"},
-];
-const VOICE_ROOMS=[
-  {id:1,name:"นั่งเงียบๆด้วยกัน",host:"หนูนก",users:[{name:"หนูนก",init:"NK",bg:"#D1FAE5",tc:"#065F46",mic:true},{name:"ไบรท์",init:"BR",bg:"#FEF3C7",tc:"#78350F",mic:false},{name:"แพม",init:"PM",bg:"#D1FAE5",tc:"#064E3B",mic:true}],vibe:"🌙"},
-  {id:2,name:"คืนนี้เหงาใครมา", host:"อาร์ม",users:[{name:"อาร์ม",init:"AR",bg:"#DBEAFE",tc:"#1E40AF",mic:true},{name:"มิ้นท์",init:"MT",bg:"#FCE7F3",tc:"#831843",mic:true}],vibe:"💜"},
-  {id:3,name:"คุยเล่นก่อนนอน",   host:"แพม",users:[{name:"แพม",init:"PM",bg:"#D1FAE5",tc:"#064E3B",mic:true}],vibe:"☕"},
-];
-const INIT_POSTS=[
-  {id:1,author:"หนูนก",init:"NK",bg:"#D1FAE5",tc:"#065F46",time:"2 นาทีที่แล้ว",content:"วันนี้เหงามากเลย ใครว่างคุยด้วยบ้าง 🌙",mood:"เหงา 🌙",privacy:"public",likes:12,liked:false,images:[],
-   comments:[{id:1,author:"แพม",init:"PM",bg:"#D1FAE5",tc:"#064E3B",text:"มาคุยด้วยได้เลยนะ 🌸",time:"1น."}]},
-  {id:2,author:"ไบรท์",init:"BR",bg:"#FEF3C7",tc:"#78350F",time:"1 ชม.",content:"อากาศดีมากวันนี้ ☀️ ออกไปนั่งข้างนอกสักพัก",mood:"สงบ ✨",privacy:"friends",likes:24,liked:true,
-   images:["https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&q=80"],comments:[]},
-  {id:3,author:"มิ้นท์",init:"MT",bg:"#FCE7F3",tc:"#831843",time:"3 ชม.",content:"ใครชอบดูซีรีส์เกาหลีบ้าง 📺 แนะนำเรื่องหน่อยนะ",mood:"สนุก 🎉",privacy:"public",likes:8,liked:false,images:[],comments:[]},
-  {id:4,author:"แพม",init:"PM",bg:"#D1FAE5",tc:"#064E3B",time:"5 ชม.",content:"กาแฟสักแก้วในวันหยุด ☕ ชีวิตดี",mood:"สบายดี 😊",privacy:"public",likes:31,liked:false,
-   images:["https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=600&q=80"],comments:[]},
-];
-const INIT_CHATS={
-  1:[{id:1,from:"them",text:"หวัดดีจ้า วันนี้เป็นยังไงบ้าง 😊",type:"text"}],
-  2:[{id:1,from:"them",text:"เฮ้ มีอะไรเล่าให้ฟังมั้ย 👂",type:"text"}],
-  3:[{id:1,from:"them",text:"ง่วงมากเลยวันนี้ 😴",type:"text"}],
-  4:[{id:1,from:"them",text:"อยู่บ้านคนเดียวเหงาๆ เลยแวะมาคุย",type:"text"}],
-  5:[{id:1,from:"them",text:"ใครอยากคุยบ้างมั้ย! 🙋",type:"text"}],
+// ─────────────────────────────────────────────
+// Persistent Storage (localStorage)
+// ─────────────────────────────────────────────
+const store = {
+  get: (k, def) => {
+    try {
+      const v = localStorage.getItem("wm_"+k);
+      if (!v) return def;
+      const parsed = JSON.parse(v);
+      // ถ้า expect array แต่ได้ค่าอื่นมา ให้ใช้ default แทน
+      if (Array.isArray(def) && !Array.isArray(parsed)) return def;
+      return parsed;
+    } catch { return def; }
+  },
+  set: (k, v) => { try { localStorage.setItem("wm_"+k, JSON.stringify(v)); } catch {} },
+  clear: (k)  => { try { localStorage.removeItem("wm_"+k); } catch {} },
 };
 
-// ── Shared UI ─────────────────────────────────────────────
-function Av({init,bg,tc,size=40,online,grad}){
-  return(
-    <div style={{position:"relative",flexShrink:0}}>
-      <div style={{width:size,height:size,borderRadius:"50%",background:grad||bg||"#EDE9FE",color:tc||C.brand,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.33,fontWeight:700,boxShadow:grad?"0 2px 8px rgba(139,124,246,.25)":"none"}}>
-        {init}
-      </div>
-      {online&&<div style={{position:"absolute",bottom:1,right:1,width:Math.max(8,size*.2),height:Math.max(8,size*.2),borderRadius:"50%",background:C.green,border:"2px solid #fff"}}/>}
+// ─────────────────────────────────────────────
+// Static Data
+// ─────────────────────────────────────────────
+const FRIENDS = [
+  {id:1,name:"หนูนก",init:"NK",bg:"#1A3A2A",tc:"#6EE7B7",online:true, mood:"เหงา 🌙"},
+  {id:2,name:"อาร์ม", init:"AR",bg:"#1A2A3A",tc:"#93C5FD",online:true, mood:"สนุก 🎉"},
+  {id:3,name:"มิ้นท์",init:"MT",bg:"#3A1A2A",tc:"#F9A8D4",online:false,mood:"ง่วง 😴"},
+  {id:4,name:"ไบรท์",init:"BR",bg:"#2A2A1A",tc:"#FCD34D",online:true, mood:"สงบ ✨"},
+  {id:5,name:"แพม",  init:"PM",bg:"#1A3A1A",tc:"#86EFAC",online:true, mood:"สบายดี 😊"},
+];
+const MOODS = ["สบายดี 😊","เหงา 🌙","สนุก 🎉","เครียด 😮‍💨","ง่วง 😴","สงบ ✨","ตื่นเต้น ⚡","โดดเดี่ยว 🫥"];
+const PV_LBL = {public:"สาธารณะ",friends:"เพื่อนเท่านั้น",only_me:"ฉันเท่านั้น"};
+const PV_ICO  = {public:"🌐",friends:"👥",only_me:"🔒"};
+const AUTO_REPLIES = ["อ่อ จริงๆ เหรอ 😊","รู้สึกแบบเดียวกันเลย 💜","ฮ่าๆ น่ารักมาก 🥰","แล้วยังไงต่อล่ะ?","ใช่เลย! 100%","เดี๋ยวเล่าให้ฟังนะ 🎵"];
+
+const SEED_POSTS = [
+  {id:"s1",author:"หนูนก",init:"NK",bg:"#1A3A2A",tc:"#6EE7B7",time:"2 นาทีที่แล้ว",content:"วันนี้เหงามากเลย ใครว่างคุยด้วยบ้าง 🌙",mood:"เหงา 🌙",privacy:"public",likes:12,liked:false,images:[],comments:[{id:"c1",author:"แพม",init:"PM",bg:"#1A3A1A",tc:"#86EFAC",text:"มาคุยด้วยได้เลยนะ 🌸",time:"1น."}]},
+  {id:"s2",author:"ไบรท์",init:"BR",bg:"#2A2A1A",tc:"#FCD34D",time:"1 ชม.",content:"อากาศดีมากวันนี้ ☀️",mood:"สงบ ✨",privacy:"friends",likes:24,liked:true,images:["https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&q=80"],comments:[]},
+  {id:"s3",author:"แพม",init:"PM",bg:"#1A3A1A",tc:"#86EFAC",time:"3 ชม.",content:"กาแฟสักแก้วในวันหยุด ☕ ชีวิตดี",mood:"สบายดี 😊",privacy:"public",likes:31,liked:false,images:["https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=600&q=80"],comments:[]},
+];
+
+const INIT_VOICE_ROOMS = [
+  {id:"vr1",name:"นั่งเงียบๆด้วยกัน",vibe:"🌙",hostId:"NK",members:[{init:"NK",name:"หนูนก",bg:"#1A3A2A",tc:"#6EE7B7",mic:true},{init:"BR",name:"ไบรท์",bg:"#2A2A1A",tc:"#FCD34D",mic:false},{init:"PM",name:"แพม",bg:"#1A3A1A",tc:"#86EFAC",mic:true}],playlist:[]},
+  {id:"vr2",name:"คืนนี้เหงาใครมาก", vibe:"💜",hostId:"AR",members:[{init:"AR",name:"อาร์ม",bg:"#1A2A3A",tc:"#93C5FD",mic:true},{init:"MT",name:"มิ้นท์",bg:"#3A1A2A",tc:"#F9A8D4",mic:true}],playlist:[]},
+];
+
+const INIT_CHATS = {
+  1:[{id:"m1",from:"them",text:"หวัดดีจ้า วันนี้เป็นยังไงบ้าง 😊",type:"text"}],
+  2:[{id:"m2",from:"them",text:"เฮ้ มีอะไรเล่าให้ฟังมั้ย 👂",type:"text"}],
+  3:[{id:"m3",from:"them",text:"ง่วงมากเลยวันนี้ 😴",type:"text"}],
+  4:[{id:"m4",from:"them",text:"อยู่บ้านคนเดียวเหงาๆ",type:"text"}],
+  5:[{id:"m5",from:"them",text:"ใครอยากคุยบ้างมั้ย! 🙋",type:"text"}],
+};
+
+// ─────────────────────────────────────────────
+// YouTube helpers
+// ─────────────────────────────────────────────
+function getYTId(url) {
+  try {
+    const u = new URL(url.trim());
+    if (u.hostname.includes("youtu.be")) return u.pathname.slice(1).split(/[?&]/)[0];
+    return u.searchParams.get("v") || "";
+  } catch { return ""; }
+}
+function ytThumb(id) { return `https://img.youtube.com/vi/${id}/mqdefault.jpg`; }
+function ytEmbed(id) { return `https://www.youtube.com/embed/${id}?autoplay=0&rel=0`; }
+
+// ─────────────────────────────────────────────
+// Primitive UI
+// ─────────────────────────────────────────────
+function Av({ init, bg, tc, size=40, online, grad }) {
+  return (
+    <div style={{ position:"relative", flexShrink:0 }}>
+      <div style={{ width:size, height:size, borderRadius:"50%",
+        background: grad ? T.brandGrad : (bg||T.card),
+        color: grad ? "#fff" : (tc||T.brand2),
+        display:"flex", alignItems:"center", justifyContent:"center",
+        fontSize:size*.32, fontWeight:700,
+        boxShadow: grad ? "0 0 16px rgba(124,92,252,.5)" : "none",
+      }}>{init}</div>
+      {online && <div style={{ position:"absolute", bottom:1, right:1, width:size*.22, height:size*.22,
+        borderRadius:"50%", background:T.green, border:"2px solid "+T.bg }} />}
     </div>
   );
 }
 
-function Pill({children,bg,tc,onClick,active}){
-  return(
-    <span onClick={onClick} style={{display:"inline-flex",alignItems:"center",gap:4,background:bg||(active?C.brand:"transparent"),color:tc||(active?"#fff":C.sub),borderRadius:20,padding:"4px 11px",fontSize:12,fontWeight:500,cursor:onClick?"pointer":"default",border:"1px solid "+(active?C.brand:C.border),transition:"all .15s"}}>
-      {children}
-    </span>
+const Chip = ({ children, active, onClick, color }) => (
+  <span onClick={onClick} style={{
+    display:"inline-flex", alignItems:"center", gap:4,
+    padding:"3px 10px", borderRadius:20, fontSize:12, fontWeight:500, cursor:onClick?"pointer":"default",
+    background: active ? (color||T.brand)+"22" : "transparent",
+    color: active ? (color||T.brand2) : T.sub,
+    border: "1px solid " + (active ? (color||T.brand)+"55" : T.border),
+    transition:"all .15s",
+  }}>{children}</span>
+);
+
+function Btn({ children, onClick, v="primary", sz="md", full, style={} }) {
+  const variants = {
+    primary: { background:T.brandGrad, color:"#fff", border:"none", boxShadow:"0 4px 16px rgba(124,92,252,.35)" },
+    ghost:   { background:"transparent", color:T.sub, border:"1px solid "+T.border },
+    outline: { background:"transparent", color:T.brand2, border:"1px solid "+T.borderHi },
+    danger:  { background:T.redBg, color:T.red, border:"1px solid rgba(244,63,94,.3)" },
+  };
+  const sizes = {
+    sm: { padding:"6px 14px", borderRadius:10, fontSize:12 },
+    md: { padding:"9px 20px", borderRadius:12, fontSize:14 },
+    lg: { padding:"13px 28px", borderRadius:14, fontSize:15 },
+  };
+  return (
+    <button onClick={onClick} style={{ fontFamily:"inherit", fontWeight:600, cursor:"pointer",
+      display:"flex", alignItems:"center", justifyContent:"center", gap:6,
+      width:full?"100%":undefined, transition:"all .18s",
+      ...variants[v], ...sizes[sz], ...style }}>{children}</button>
   );
 }
 
-function Card({children,style,gradient}){
-  return(
-    <div style={{background:gradient?C.gradCard:C.surface,border:"1px solid "+C.border,borderRadius:18,overflow:"hidden",boxShadow:"0 2px 12px rgba(139,124,246,.06)",...style}}>
+function Card({ children, style={} }) {
+  return (
+    <div style={{ background:T.card, border:"1px solid "+T.border, borderRadius:18,
+      overflow:"hidden", boxShadow:"0 4px 24px rgba(0,0,0,.3)", ...style }}>
       {children}
     </div>
   );
 }
 
-function ImgGrid({images}){
-  if(!images||!images.length)return null;
-  const n=images.length;
-  return(
-    <div style={{display:"grid",gap:3,overflow:"hidden",margin:"10px 0",borderRadius:14,
-      gridTemplateColumns:n===1?"1fr":"1fr 1fr",
-      maxHeight:n===1?320:260}}>
-      {images.slice(0,4).map((src,i)=>(
-        <div key={i} style={{overflow:"hidden",position:"relative",gridColumn:n===3&&i===0?"1/3":undefined}}>
-          <img src={src} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block",minHeight:130}}/>
-          {i===3&&n>4&&<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:22,fontWeight:700}}>+{n-4}</div>}
+function Input({ value, onChange, placeholder, type="text", onKeyDown, style={} }) {
+  return (
+    <input type={type} value={value} onChange={onChange} placeholder={placeholder} onKeyDown={onKeyDown}
+      style={{ width:"100%", background:T.surface, border:"1px solid "+T.border, borderRadius:12,
+        padding:"11px 16px", fontSize:14, outline:"none", color:T.text, boxSizing:"border-box",
+        fontFamily:"inherit", transition:"border .15s", ...style }}
+      onFocus={e=>e.target.style.borderColor=T.borderHi}
+      onBlur={e=>e.target.style.borderColor=T.border} />
+  );
+}
+
+function ImgGrid({ images }) {
+  if (!images?.length) return null;
+  const n = images.length;
+  return (
+    <div style={{ display:"grid", gap:2, margin:"10px 0", borderRadius:14, overflow:"hidden",
+      gridTemplateColumns: n===1?"1fr":"1fr 1fr", maxHeight: n===1?340:240 }}>
+      {images.slice(0,4).map((src,i) => (
+        <div key={i} style={{ overflow:"hidden", position:"relative", gridColumn:n===3&&i===0?"1/3":undefined }}>
+          <img src={src} alt="" style={{ width:"100%", height:"100%", objectFit:"cover", display:"block", minHeight:120 }}
+            onError={e=>e.target.style.display="none"}/>
+          {i===3&&n>4 && <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.6)", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", fontSize:22, fontWeight:700 }}>+{n-4}</div>}
         </div>
       ))}
     </div>
   );
 }
 
-// ── MusicPlayer (รองรับ YouTube URL) ─────────────────────────
-function MusicPlayer(){
-  const [playing,setPlaying]=useState(null);
-  const [progress,setProgress]=useState({});
-  const [ytUrl,setYtUrl]=useState("");
-  const [ytEmbedId,setYtEmbedId]=useState("");
-  const timers=useRef({});
+// ─────────────────────────────────────────────
+// Auth
+// ─────────────────────────────────────────────
+function AuthPage({ onLogin }) {
+  const [name, setName] = useState("");
+  const [err, setErr] = useState("");
 
-  function togglePlay(id){
-    if(playing===id){
-      clearInterval(timers.current[id]);
-      setPlaying(null);
-    } else {
-      if(playing)clearInterval(timers.current[playing]);
-      setPlaying(id);
-      let p=progress[id]||0;
-      timers.current[id]=setInterval(()=>{
-        p=Math.min(100,p+0.5);
-        setProgress(prev=>({...prev,[id]:p}));
-        if(p>=100){clearInterval(timers.current[id]);setPlaying(null);}
-      },100);
-    }
+  function loginGoogle() {
+    // จำลอง Google OAuth
+    const u = { name:"สิทธิชัย", email:"sittichai@gmail.com", avatar:"", isGuest:false, provider:"google" };
+    store.set("user", u);
+    onLogin(u);
   }
-  useEffect(()=>()=>Object.values(timers.current).forEach(clearInterval),[]);
-
-  function handleYtPlay(){
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-    const match = ytUrl.match(regExp);
-    if (match && match[2].length === 11) {
-      setYtEmbedId(match[2]);
-    } else {
-      alert("ลิงก์ YouTube ไม่ถูกต้อง กรุณาลองใหม่ครับ");
-    }
+  function loginGuest() {
+    if (!name.trim()) { setErr("ใส่ชื่อที่ต้องการแสดงก่อนนะ"); return; }
+    const u = { name:name.trim(), email:"", avatar:"", isGuest:true, provider:"guest" };
+    store.set("user", u);
+    onLogin(u);
   }
 
-  return(
-    <div style={{marginTop:12}}>
-      <div style={{fontSize:13,fontWeight:700,color:C.brand,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
-        🎵 เพลงและเสียงในห้อง
+  return (
+    <div style={{ minHeight:"100vh", background:T.bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:24 }}>
+      <style>{`@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}`}</style>
+
+      {/* Hero */}
+      <div style={{ textAlign:"center", marginBottom:40 }}>
+        <div style={{ width:72, height:72, borderRadius:22, background:T.brandGrad,
+          display:"flex", alignItems:"center", justifyContent:"center", fontSize:36,
+          margin:"0 auto 18px", boxShadow:"0 8px 32px rgba(124,92,252,.5)", animation:"float 3s ease-in-out infinite" }}>💜</div>
+        <div style={{ fontSize:36, fontWeight:800, color:T.text, letterSpacing:-1 }}>Warmly</div>
+        <div style={{ fontSize:15, color:T.sub, marginTop:8, lineHeight:1.6 }}>พื้นที่อบอุ่น สำหรับทุกคน<br/>หาเพื่อน คุยเล่น ไม่เหงา</div>
       </div>
 
-      {/* ช่องใส่ลิงก์ YouTube */}
-      <div style={{display:"flex",gap:6,marginBottom:10}}>
-        <input 
-          value={ytUrl} 
-          onChange={e=>setYtUrl(e.target.value)} 
-          placeholder="วางลิงก์ YouTube เช่น https://youtu.be/..." 
-          style={{flex:1,border:"1px solid "+C.border,borderRadius:10,padding:"7px 10px",fontSize:12,outline:"none",background:"#fff",color:C.text}}
-        />
-        <button onClick={handleYtPlay} style={{padding:"7px 12px",borderRadius:10,border:"none",background:C.grad,color:"#fff",cursor:"pointer",fontSize:12,fontWeight:600}}>เปิดเพลง YT</button>
-      </div>
+      <div style={{ width:"100%", maxWidth:360 }}>
+        {/* Google */}
+        <button onClick={loginGoogle} style={{ width:"100%", padding:"14px 20px", borderRadius:16,
+          border:"1px solid "+T.border, background:T.card, color:T.text, cursor:"pointer",
+          fontSize:15, fontWeight:600, display:"flex", alignItems:"center", justifyContent:"center",
+          gap:12, marginBottom:14, fontFamily:"inherit", transition:"all .2s" }}
+          onMouseOver={e=>e.currentTarget.style.borderColor=T.borderHi}
+          onMouseOut={e=>e.currentTarget.style.borderColor=T.border}>
+          <span style={{ fontSize:22 }}>🔵</span> เข้าสู่ระบบด้วย Google
+        </button>
 
-      {ytEmbedId && (
-        <div style={{marginBottom:10,borderRadius:10,overflow:"hidden",height:120,background:"#000"}}>
-          <iframe 
-            width="100%" 
-            height="100%" 
-            src={`https://www.youtube.com/embed/${ytEmbedId}?autoplay=1`} 
-            title="YouTube audio player" 
-            frameBorder="0" 
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-            allowFullScreen
-          ></iframe>
+        {/* Divider */}
+        <div style={{ display:"flex", alignItems:"center", gap:12, margin:"18px 0" }}>
+          <div style={{ flex:1, height:1, background:T.border }}/>
+          <span style={{ fontSize:12, color:T.muted }}>หรือ</span>
+          <div style={{ flex:1, height:1, background:T.border }}/>
         </div>
-      )}
 
-      <div style={{display:"flex",flexDirection:"column",gap:7}}>
-        {PLAYLIST.map(s=>{
-          const isPlaying=playing===s.id;
-          const prog=progress[s.id]||0;
-          return(
-            <div key={s.id} onClick={()=>togglePlay(s.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:12,background:isPlaying?`linear-gradient(90deg,${s.color}18,${s.color}08)`:C.bg,border:"1px solid "+(isPlaying?s.color:C.border),cursor:"pointer",transition:"all .2s"}}>
-              <div style={{width:36,height:36,borderRadius:10,background:`linear-gradient(135deg,${s.color},${s.color}99)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{s.emoji}</div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:13,fontWeight:600,color:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.title}</div>
-                <div style={{fontSize:11,color:C.sub}}>{s.artist}</div>
-                {isPlaying&&(
-                  <div style={{marginTop:5,height:3,background:C.border,borderRadius:3,overflow:"hidden"}}>
-                    <div style={{height:"100%",background:s.color,width:prog+"%",transition:"width .1s",borderRadius:3}}/>
-                  </div>
-                )}
-              </div>
-              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}}>
-                <div style={{fontSize:11,color:C.muted}}>{s.duration}</div>
-                <div style={{width:26,height:26,borderRadius:"50%",background:isPlaying?s.color:"#EDE9FE",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:isPlaying?"#fff":C.brand}}>
-                  {isPlaying?"⏸":"▶"}
-                </div>
-              </div>
-            </div>
-          );
-        })}
+        {/* Guest */}
+        <div style={{ background:T.surface, border:"1px solid "+T.border, borderRadius:16, padding:"20px 18px" }}>
+          <div style={{ fontSize:13, color:T.sub, marginBottom:12, textAlign:"center" }}>เข้าแบบผู้เยี่ยมชม 👋<br/>ไม่ต้องสมัคร</div>
+          <Input value={name} onChange={e=>{setName(e.target.value);setErr("");}} placeholder="ชื่อที่ต้องการแสดง..." onKeyDown={e=>e.key==="Enter"&&loginGuest()} style={{marginBottom:10}}/>
+          {err && <div style={{ fontSize:12, color:T.red, marginBottom:10, fontWeight:500 }}>{err}</div>}
+          <Btn onClick={loginGuest} v="outline" sz="md" full>เข้าแบบผู้เยี่ยมชม</Btn>
+        </div>
+
+        <div style={{ textAlign:"center", fontSize:12, color:T.muted, marginTop:20, lineHeight:1.6 }}>
+          การเข้าใช้งาน แสดงว่าคุณยอมรับ<br/>นโยบายความเป็นส่วนตัวของเรา
+        </div>
       </div>
     </div>
   );
 }
 
-// ── PostCard ──────────────────────────────────────────────
-function PostCard({p,onLike,onComment}){
-  const [open,setOpen]=useState(false);
-  const [cmt,setCmt]=useState("");
-  const [err,setErr]=useState("");
-  function submit(){
-    if(!cmt.trim()){setErr("เม้นอะไรก่อนนะ 😊");return;}
-    onComment(p.id,cmt.trim());setCmt("");setErr("");
+// ─────────────────────────────────────────────
+// YouTube Playlist Component
+// ─────────────────────────────────────────────
+function YoutubePlaylist({ playlist, setPlaylist, isHost }) {
+  const [url, setUrl] = useState("");
+  const [title, setTitle] = useState("");
+  const [err, setErr] = useState("");
+  const [playing, setPlaying] = useState(null);
+
+  function add() {
+    const id = getYTId(url);
+    if (!id) { setErr("ลิงก์ YouTube ไม่ถูกต้อง"); return; }
+    if (playlist.find(p=>p.id===id)) { setErr("เพลงนี้อยู่ใน playlist แล้ว"); return; }
+    setPlaylist(prev => [...prev, { id, title:title.trim()||"YouTube: "+id.slice(0,10)+"…", thumb:ytThumb(id) }]);
+    setUrl(""); setTitle(""); setErr("");
   }
-  return(
-    <Card style={{marginBottom:14}}>
-      <div style={{padding:"16px 16px 0"}}>
-        <div style={{display:"flex",gap:11,marginBottom:12}}>
-          <Av init={p.init} bg={p.bg} tc={p.tc} size={40}/>
-          <div style={{flex:1}}>
-            <div style={{fontSize:14,fontWeight:700,color:C.text}}>{p.author}</div>
-            <div style={{fontSize:12,color:C.muted,display:"flex",flexWrap:"wrap",gap:6,marginTop:3}}>
+
+  return (
+    <div style={{ borderTop:"1px solid "+T.border, paddingTop:14, marginTop:14 }}>
+      <div style={{ fontSize:13, fontWeight:700, color:T.brand2, marginBottom:12, display:"flex", alignItems:"center", gap:7 }}>
+        🎵 Playlist <span style={{ fontSize:11, fontWeight:400, color:T.muted }}>({playlist.length})</span>
+      </div>
+
+      {isHost && (
+        <div style={{ background:T.surface, border:"1px dashed "+T.border, borderRadius:14, padding:"12px 14px", marginBottom:12 }}>
+          <div style={{ fontSize:12, color:T.muted, marginBottom:8 }}>➕ เพิ่มจาก YouTube URL</div>
+          <Input value={url} onChange={e=>{setUrl(e.target.value);setErr("");}} placeholder="https://youtube.com/watch?v=..." style={{marginBottom:7}}/>
+          <Input value={title} onChange={e=>setTitle(e.target.value)} placeholder="ชื่อเพลง (ไม่บังคับ)" onKeyDown={e=>e.key==="Enter"&&add()} style={{marginBottom:7}}/>
+          {err && <div style={{ fontSize:12, color:T.red, marginBottom:7 }}>{err}</div>}
+          <Btn onClick={add} v="primary" sz="sm">เพิ่มเพลง</Btn>
+        </div>
+      )}
+
+      {/* Playing iframe */}
+      {playing && (
+        <div style={{ marginBottom:12, borderRadius:12, overflow:"hidden", border:"1px solid "+T.border, background:"#000" }}>
+          <div style={{ display:"flex", justifyContent:"flex-end", padding:"6px 10px", background:T.surface }}>
+            <button onClick={()=>setPlaying(null)} style={{ background:"transparent", border:"none", color:T.muted, cursor:"pointer", fontSize:12, fontFamily:"inherit" }}>✕ ปิด</button>
+          </div>
+          <iframe
+            src={ytEmbed(playing)}
+            width="100%" height="200"
+            frameBorder="0"
+            allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen style={{ display:"block" }}
+            title="YouTube player"
+          />
+        </div>
+      )}
+
+      {playlist.length === 0 && (
+        <div style={{ textAlign:"center", padding:"14px 0", color:T.muted, fontSize:13 }}>
+          {isHost ? "วาง YouTube URL ด้านบนเพื่อเพิ่มเพลง 🎵" : "Host ยังไม่ได้เพิ่มเพลง"}
+        </div>
+      )}
+
+      <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+        {playlist.map((s,i) => (
+          <div key={s.id} style={{ display:"flex", gap:10, alignItems:"center", padding:"9px 12px", borderRadius:12,
+            background: playing===s.id ? T.brand+"22" : T.surface,
+            border:"1px solid "+(playing===s.id ? T.borderHi : T.border), cursor:"pointer", transition:"all .18s" }}>
+            <span style={{ fontSize:13, fontWeight:700, color:T.muted, width:18, textAlign:"center", flexShrink:0 }}>{i+1}</span>
+            <img src={s.thumb} alt="" style={{ width:48, height:34, borderRadius:8, objectFit:"cover", flexShrink:0, border:"1px solid "+T.border }}
+              onError={e=>e.target.style.display="none"}/>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, fontWeight:600, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{s.title}</div>
+              <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>กดเพื่อเปิดดูในห้อง</div>
+            </div>
+            <div style={{ display:"flex", gap:6 }}>
+              <button onClick={()=>setPlaying(prev=>prev===s.id?null:s.id)}
+                style={{ border:"none", background:"transparent", color:playing===s.id?T.brand2:T.muted, cursor:"pointer", fontSize:16, fontFamily:"inherit" }}>
+                {playing===s.id?"⏸":"▶"}
+              </button>
+              {isHost && <button onClick={()=>{setPlaylist(p=>p.filter(x=>x.id!==s.id));if(playing===s.id)setPlaying(null);}}
+                style={{ border:"none", background:"transparent", color:T.muted, cursor:"pointer", fontSize:14, fontFamily:"inherit" }}>✕</button>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Voice Rooms
+// ─────────────────────────────────────────────
+function VoiceRoomsPage({ user }) {
+  const [rooms, setRooms] = useState(INIT_VOICE_ROOMS);
+  const [inRoomId, setInRoomId] = useState(null);
+  const [myMic, setMyMic] = useState(true);
+  const [showPL, setShowPL] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [nameErr, setNameErr] = useState("");
+
+  const inRoom = rooms.find(r=>r.id===inRoomId);
+  const isHost = inRoom && inRoom.hostId === (user.init||"ME");
+
+  function join(r) {
+    setRooms(prev => prev.map(room => {
+      if (room.id !== r.id) return room;
+      if (room.members.find(m=>m.init===(user.init||"ME"))) return room;
+      return { ...room, members:[...room.members,{init:user.init||"ME",name:user.name,bg:T.card,tc:T.brand2,mic:true}] };
+    }));
+    setInRoomId(r.id); setMyMic(true); setShowPL(false);
+  }
+  function leave() { setRooms(prev=>prev.map(r=>r.id!==inRoomId?r:{...r,members:r.members.filter(m=>m.init!==(user.init||"ME"))})); setInRoomId(null); setShowPL(false); }
+  function hostToggleMic(init) { if(!isHost)return; setRooms(p=>p.map(r=>r.id!==inRoomId?r:{...r,members:r.members.map(m=>m.init===init?{...m,mic:!m.mic}:m)})); }
+  function kick(init) { if(!isHost||init===(user.init||"ME"))return; setRooms(p=>p.map(r=>r.id!==inRoomId?r:{...r,members:r.members.filter(m=>m.init!==init)})); }
+  function create() { if(!newName.trim()){setNameErr("ใส่ชื่อห้องก่อนนะ");return;} const r={id:"vr"+Date.now(),name:newName.trim(),vibe:"🎵",hostId:user.init||"ME",members:[{init:user.init||"ME",name:user.name,bg:T.card,tc:T.brand2,mic:true}],playlist:[]}; setRooms(p=>[r,...p]); join(r); setNewName(""); setCreating(false); setNameErr(""); }
+  function updatePL(pl) { setRooms(p=>p.map(r=>r.id===inRoomId?{...r,playlist:pl}:r)); }
+
+  return (
+    <div>
+      {inRoom && (
+        <Card style={{ marginBottom:16, border:"1px solid "+T.borderHi }}>
+          <div style={{ background:"linear-gradient(135deg,"+T.card+","+T.surface+")", padding:"16px 16px 0" }}>
+            <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:14, gap:10 }}>
+              <div>
+                <div style={{ fontSize:15, fontWeight:700, color:T.text, display:"flex", alignItems:"center", gap:8 }}>
+                  <div style={{ width:8, height:8, borderRadius:"50%", background:T.green, boxShadow:"0 0 8px "+T.green }}/>
+                  {inRoom.vibe} {inRoom.name}
+                </div>
+                <div style={{ fontSize:12, color:T.muted, marginTop:3 }}>{isHost?"👑 คุณเป็น Host":"กำลังคุยอยู่"} • {inRoom.members.length} คน</div>
+              </div>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                <Btn onClick={()=>setShowPL(!showPL)} v={showPL?"primary":"ghost"} sz="sm">🎵</Btn>
+                <Btn onClick={()=>setMyMic(!myMic)} v="ghost" sz="sm">{myMic?"🎙️":"🔇"}</Btn>
+                <Btn onClick={leave} v="danger" sz="sm">📵</Btn>
+              </div>
+            </div>
+            <div style={{ display:"flex", gap:12, flexWrap:"wrap", paddingBottom:16 }}>
+              {inRoom.members.map((m,i)=>{
+                const isMe = m.init===(user.init||"ME");
+                const speaking = isMe?myMic:m.mic;
+                return (
+                  <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:5, position:"relative" }}>
+                    {isHost&&!isMe&&(
+                      <div style={{ position:"absolute", top:-6, right:-4, display:"flex", gap:2, zIndex:2 }}>
+                        <button onClick={()=>hostToggleMic(m.init)} style={{ width:16,height:16,borderRadius:"50%",background:m.mic?"#1A3A2A":"#2A2A1A",border:"1px solid "+T.border,cursor:"pointer",fontSize:8,color:m.mic?T.green:T.yellow,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit" }}>{m.mic?"🎙":"🔇"}</button>
+                        <button onClick={()=>kick(m.init)} style={{ width:16,height:16,borderRadius:"50%",background:T.redBg,border:"1px solid rgba(244,63,94,.3)",cursor:"pointer",fontSize:8,color:T.red,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit" }}>✕</button>
+                      </div>
+                    )}
+                    <div style={{ padding:3, borderRadius:"50%", border:"2.5px solid "+(speaking?T.green:T.border), boxShadow:speaking?"0 0 12px rgba(16,185,129,.4)":"none", transition:"all .3s" }}>
+                      <Av init={m.init} bg={m.bg} tc={m.tc} grad={isMe} size={48}/>
+                    </div>
+                    <div style={{ fontSize:11, color:T.brand2, fontWeight:700, maxWidth:56, textAlign:"center", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{isMe?"คุณ":m.name}</div>
+                    <Chip active={speaking} color={speaking?T.green:undefined}>{speaking?"🎙":"🔇"}</Chip>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          {showPL && <div style={{ padding:"0 16px 16px" }}><YoutubePlaylist playlist={inRoom.playlist} setPlaylist={updatePL} isHost={isHost}/></div>}
+        </Card>
+      )}
+
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
+        <div style={{ fontSize:16, fontWeight:800, color:T.text }}>ห้องเสียง 🎙️</div>
+        <Btn onClick={()=>setCreating(!creating)} v={creating?"primary":"outline"} sz="sm">+ ห้องใหม่</Btn>
+      </div>
+
+      {creating && (
+        <Card style={{ marginBottom:14 }}>
+          <div style={{ padding:16 }}>
+            <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:10 }}>🏠 สร้างห้องใหม่</div>
+            <Input value={newName} onChange={e=>{setNewName(e.target.value);setNameErr("");}} placeholder="ชื่อห้อง เช่น คืนนี้ใครว่างบ้าง 🌙" onKeyDown={e=>e.key==="Enter"&&create()} style={{marginBottom:8}}/>
+            {nameErr && <div style={{ fontSize:12, color:T.red, marginBottom:8 }}>{nameErr}</div>}
+            <div style={{ display:"flex", gap:7 }}>
+              <Btn onClick={create} v="primary" sz="sm">สร้างห้อง ✨</Btn>
+              <Btn onClick={()=>{setCreating(false);setNameErr("");}} v="ghost" sz="sm">ยกเลิก</Btn>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+        {rooms.map(r=>(
+          <Card key={r.id} style={{ border:"1px solid "+(inRoomId===r.id?T.borderHi:T.border) }}>
+            <div style={{ padding:"16px" }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
+                <div>
+                  <div style={{ fontSize:15, fontWeight:700, color:T.text }}>{r.vibe} {r.name}</div>
+                  <div style={{ fontSize:12, color:T.muted, marginTop:4, display:"flex", alignItems:"center", gap:6 }}>
+                    <div style={{ width:6,height:6,borderRadius:"50%",background:T.green }}/>{r.members.length} คน
+                    {r.playlist.length>0&&<span>• 🎵 {r.playlist.length}</span>}
+                  </div>
+                </div>
+                {inRoomId===r.id ? <Btn onClick={leave} v="danger" sz="sm">ออก</Btn> : <Btn onClick={()=>join(r)} v="primary" sz="sm">เข้าร่วม</Btn>}
+              </div>
+              <div style={{ display:"flex" }}>
+                {r.members.slice(0,7).map((m,i)=>(
+                  <div key={i} style={{ width:28,height:28,borderRadius:"50%",background:m.bg,color:m.tc,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,border:"2px solid "+T.bg,marginLeft:i>0?-8:0 }}>{m.init}</div>
+                ))}
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// PostCard
+// ─────────────────────────────────────────────
+function PostCard({ p, onLike, onComment }) {
+  const [open, setOpen] = useState(false);
+  const [cmt, setCmt] = useState("");
+  const [err, setErr] = useState("");
+  function submit() { if(!cmt.trim()){setErr("เม้นอะไรก่อนนะ");return;} onComment(p.id,cmt.trim()); setCmt(""); setErr(""); }
+  return (
+    <Card style={{ marginBottom:12 }}>
+      <div style={{ padding:"16px 16px 0" }}>
+        <div style={{ display:"flex", gap:12, marginBottom:12 }}>
+          <Av init={p.init} bg={p.bg} tc={p.tc} size={42}/>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:14, fontWeight:700, color:T.text }}>{p.author}</div>
+            <div style={{ fontSize:12, color:T.muted, display:"flex", flexWrap:"wrap", gap:6, marginTop:3 }}>
               <span>{p.time}</span><span>·</span>
-              <span>{PV_ICO[p.privacy]} {PV_LBL[p.privacy]}</span>
-              {p.mood&&<Pill bg={C.gradSoft} tc={C.brand}>✦ {p.mood}</Pill>}
+              <Chip>{PV_ICO[p.privacy]} {PV_LBL[p.privacy]}</Chip>
+              {p.mood && <Chip active color={T.brand}>{p.mood}</Chip>}
             </div>
           </div>
         </div>
-        {p.content&&<div style={{fontSize:15,color:C.text,lineHeight:1.7,marginBottom:4}}>{p.content}</div>}
+        {p.content && <div style={{ fontSize:15, color:T.text, lineHeight:1.75, marginBottom:4 }}>{p.content}</div>}
       </div>
       <ImgGrid images={p.images}/>
-      <div style={{padding:"0 16px 14px"}}>
-        <div style={{borderTop:"1px solid "+C.border,paddingTop:10,display:"flex",gap:8}}>
-          <button onClick={()=>onLike(p.id)} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 14px",borderRadius:20,border:"1px solid "+(p.liked?C.brand:C.border),background:p.liked?C.grad:"transparent",color:p.liked?"#fff":C.sub,cursor:"pointer",fontSize:13,fontWeight:600,transition:"all .2s"}}>
-            {p.liked?"❤️":"🤍"} {p.likes}
-          </button>
-          <button onClick={()=>setOpen(!open)} style={{display:"flex",alignItems:"center",gap:5,padding:"6px 14px",borderRadius:20,border:"1px solid "+(open?C.brand:C.border),background:open?"#F5F3FF":"transparent",color:open?C.brand:C.sub,cursor:"pointer",fontSize:13,transition:"all .2s"}}>
-            💬 {p.comments.length}
-          </button>
-          <button style={{display:"flex",alignItems:"center",gap:5,padding:"6px 14px",borderRadius:20,border:"1px solid "+C.border,background:"transparent",color:C.sub,cursor:"pointer",fontSize:13}}>
-            🔗 แชร์
-          </button>
+      <div style={{ padding:"0 16px 14px" }}>
+        <div style={{ borderTop:"1px solid "+T.border, paddingTop:10, display:"flex", gap:7 }}>
+          <Btn onClick={()=>onLike(p.id)} v={p.liked?"primary":"ghost"} sz="sm">{p.liked?"❤️":"🤍"} {p.likes}</Btn>
+          <Btn onClick={()=>setOpen(!open)} v={open?"outline":"ghost"} sz="sm">💬 {p.comments.length}</Btn>
+          <Btn v="ghost" sz="sm">🔗</Btn>
         </div>
-        {open&&(
-          <div style={{marginTop:12}}>
+        {open && (
+          <div style={{ marginTop:12 }}>
             {p.comments.map(c=>(
-              <div key={c.id} style={{display:"flex",gap:8,marginBottom:10}}>
+              <div key={c.id} style={{ display:"flex", gap:9, marginBottom:10 }}>
                 <Av init={c.init} bg={c.bg} tc={c.tc} size={30}/>
-                <div style={{background:C.bg,borderRadius:12,padding:"8px 12px",flex:1,border:"1px solid "+C.border}}>
-                  <div style={{fontSize:12,fontWeight:700,color:C.text}}>{c.author} <span style={{fontWeight:400,color:C.muted,fontSize:11}}>{c.time}</span></div>
-                  <div style={{fontSize:13,color:C.text,marginTop:3}}>{c.text}</div>
+                <div style={{ background:T.surface, borderRadius:14, padding:"8px 13px", flex:1, border:"1px solid "+T.border }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:T.text }}>{c.author} <span style={{ fontWeight:400, color:T.muted, fontSize:11 }}>{c.time}</span></div>
+                  <div style={{ fontSize:13, color:T.sub, marginTop:3, lineHeight:1.5 }}>{c.text}</div>
                 </div>
               </div>
             ))}
-            <div style={{display:"flex",gap:8,alignItems:"center",marginTop:6}}>
-              <Av init="สต" grad={C.grad} tc="#fff" size={30}/>
-              <input value={cmt} onChange={e=>{setCmt(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&submit()} placeholder="เม้นอะไรสักอย่าง..." style={{flex:1,border:"1px solid "+C.border,borderRadius:20,padding:"8px 14px",fontSize:13,outline:"none",background:C.bg,color:C.text,fontFamily:"inherit"}}/>
-              <button onClick={submit} style={{padding:"8px 16px",borderRadius:20,border:"none",background:C.grad,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:600}}>ส่ง</button>
+            <div style={{ display:"flex", gap:9, alignItems:"center", marginTop:6 }}>
+              <Av init="ME" grad size={30}/>
+              <input value={cmt} onChange={e=>{setCmt(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&submit()}
+                placeholder="เม้นอะไรสักอย่าง..."
+                style={{ flex:1, border:"1px solid "+T.border, borderRadius:20, padding:"8px 14px", fontSize:13, outline:"none", background:T.surface, color:T.text, fontFamily:"inherit" }}
+                onFocus={e=>e.target.style.borderColor=T.borderHi} onBlur={e=>e.target.style.borderColor=T.border}/>
+              <Btn onClick={submit} v="primary" sz="sm">ส่ง</Btn>
             </div>
-            {err&&<div style={{fontSize:12,color:C.red,marginTop:5,marginLeft:38}}>{err}</div>}
+            {err && <div style={{ fontSize:12, color:T.red, marginTop:6, marginLeft:39 }}>{err}</div>}
           </div>
         )}
       </div>
@@ -263,82 +503,67 @@ function PostCard({p,onLike,onComment}){
   );
 }
 
-// ── NewPostBox ────────────────────────────────────────────
-function NewPostBox({onPost}){
-  const [text,setText]=useState("");
-  const [mood,setMood]=useState("");
-  const [privacy,setPrivacy]=useState("public");
-  const [images,setImages]=useState([]);
-  const [err,setErr]=useState("");
-  const [showM,setShowM]=useState(false);
-  const fileRef=useRef();
-
-  function handleFiles(e){
-    Array.from(e.target.files).forEach(f=>{
-      const r=new FileReader();
-      r.onload=ev=>setImages(p=>[...p,{src:ev.target.result,isVideo:f.type.startsWith("video/"),name:f.name}]);
-      r.readAsDataURL(f);
-    });
-    e.target.value="";
-  }
-  function submit(){
-    if(!text.trim()&&!images.length){setErr("เขียนอะไรหรือเพิ่มรูปก่อนนะ");return;}
-    onPost({text:text.trim(),mood,privacy,images:images.map(i=>i.src)});
-    setText("");setMood("");setImages([]);setErr("");setShowM(false);
-  }
-
-  return(
-    <Card style={{marginBottom:16}} gradient>
-      <div style={{padding:"16px 16px 14px"}}>
-        <div style={{display:"flex",gap:11}}>
-          <Av init="สต" grad={C.grad} tc="#fff" size={40}/>
-          <textarea value={text} onChange={e=>{setText(e.target.value);setErr("");}} placeholder="คุณรู้สึกยังไงวันนี้? บอกเพื่อนๆบ้างนะ 💜" style={{flex:1,border:"1px solid "+C.border,borderRadius:14,padding:"10px 14px",fontSize:14,resize:"none",outline:"none",minHeight:72,lineHeight:1.6,background:"#fff",color:C.text,fontFamily:"inherit"}}/>
+function NewPostBox({ onPost }) {
+  const [text, setText] = useState("");
+  const [mood, setMood] = useState("");
+  const [privacy, setPrivacy] = useState("public");
+  const [images, setImages] = useState([]);
+  const [err, setErr] = useState("");
+  const [showM, setShowM] = useState(false);
+  const fileRef = useRef();
+  function handleFiles(e) { Array.from(e.target.files).forEach(f=>{const r=new FileReader();r.onload=ev=>setImages(p=>[...p,{src:ev.target.result,name:f.name}]);r.readAsDataURL(f);}); e.target.value=""; }
+  function submit() { if(!text.trim()&&!images.length){setErr("เขียนหรือเพิ่มรูปก่อนนะ");return;} onPost({text:text.trim(),mood,privacy,images:images.map(i=>i.src)}); setText("");setMood("");setImages([]);setErr("");setShowM(false); }
+  return (
+    <Card style={{ marginBottom:14 }}>
+      <div style={{ padding:"16px" }}>
+        <div style={{ display:"flex", gap:12 }}>
+          <Av init="ME" grad size={42}/>
+          <textarea value={text} onChange={e=>{setText(e.target.value);setErr("");}} placeholder="คุณรู้สึกยังไงวันนี้? 💜"
+            style={{ flex:1, border:"1px solid "+T.border, borderRadius:14, padding:"10px 14px", fontSize:14, resize:"none", outline:"none", minHeight:72, lineHeight:1.6, background:T.surface, color:T.text, fontFamily:"inherit", transition:"border .15s" }}
+            onFocus={e=>e.target.style.borderColor=T.borderHi} onBlur={e=>e.target.style.borderColor=T.border}/>
         </div>
-        {images.length>0&&(
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10,marginLeft:51}}>
+        {images.length>0 && (
+          <div style={{ display:"flex", gap:7, flexWrap:"wrap", marginTop:10, marginLeft:54 }}>
             {images.map((img,i)=>(
-              <div key={i} style={{position:"relative",width:72,height:72,borderRadius:10,overflow:"hidden",border:"1px solid "+C.border}}>
-                {img.isVideo
-                  ?<div style={{width:"100%",height:"100%",background:"#1a1a1a",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2}}><span style={{fontSize:20}}>🎬</span><span style={{fontSize:9,color:"#aaa"}}>{img.name.slice(0,10)}</span></div>
-                  :<img src={img.src} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-                }
-                <button onClick={()=>setImages(imgs=>imgs.filter((_,j)=>j!==i))} style={{position:"absolute",top:2,right:2,width:18,height:18,borderRadius:"50%",background:"rgba(0,0,0,.6)",border:"none",color:"#fff",cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+              <div key={i} style={{ position:"relative", width:72, height:72, borderRadius:12, overflow:"hidden", border:"1px solid "+T.border }}>
+                <img src={img.src} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/>
+                <button onClick={()=>setImages(imgs=>imgs.filter((_,j)=>j!==i))}
+                  style={{ position:"absolute", top:3, right:3, width:18, height:18, borderRadius:"50%", background:"rgba(0,0,0,.7)", border:"none", color:"#fff", cursor:"pointer", fontSize:10, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"inherit" }}>✕</button>
               </div>
             ))}
           </div>
         )}
-        {err&&<div style={{fontSize:12,color:C.red,marginTop:6,marginLeft:51}}>{err}</div>}
-        <div style={{display:"flex",alignItems:"center",gap:7,marginTop:12,marginLeft:51,flexWrap:"wrap"}}>
-          <input ref={fileRef} type="file" accept="image/*,video/*" multiple style={{display:"none"}} onChange={handleFiles}/>
-          <button onClick={()=>fileRef.current.click()} style={{padding:"6px 12px",borderRadius:20,border:"1px solid "+C.border,background:"#fff",color:C.sub,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",gap:5,fontFamily:"inherit"}}>
-            📷 รูป/วิดีโอ{images.length>0?` (${images.length})`:""}
-          </button>
-          <button onClick={()=>setShowM(!showM)} style={{padding:"6px 12px",borderRadius:20,border:"1px solid "+(mood?C.brand:C.border),background:mood?C.gradSoft:"#fff",color:mood?C.brand:C.sub,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>
-            ✦ {mood||"mood"}
-          </button>
-          <select value={privacy} onChange={e=>setPrivacy(e.target.value)} style={{padding:"6px 10px",borderRadius:20,border:"1px solid "+C.border,background:"#fff",color:C.sub,cursor:"pointer",fontSize:12,outline:"none",fontFamily:"inherit"}}>
+        {err && <div style={{ fontSize:12, color:T.red, marginTop:7, marginLeft:54, fontWeight:500 }}>{err}</div>}
+        <div style={{ display:"flex", alignItems:"center", gap:7, marginTop:12, marginLeft:54, flexWrap:"wrap" }}>
+          <input ref={fileRef} type="file" accept="image/*,video/*" multiple style={{ display:"none" }} onChange={handleFiles}/>
+          <Btn onClick={()=>fileRef.current.click()} v="ghost" sz="sm">📷{images.length>0?` (${images.length})`:""}</Btn>
+          <Btn onClick={()=>setShowM(!showM)} v={mood?"outline":"ghost"} sz="sm">✦ {mood||"Mood"}</Btn>
+          <select value={privacy} onChange={e=>setPrivacy(e.target.value)}
+            style={{ padding:"7px 10px", borderRadius:10, border:"1px solid "+T.border, background:T.surface, color:T.sub, fontSize:12, outline:"none", fontFamily:"inherit", cursor:"pointer" }}>
             <option value="public">🌐 สาธารณะ</option>
             <option value="friends">👥 เพื่อนเท่านั้น</option>
             <option value="only_me">🔒 ฉันเท่านั้น</option>
           </select>
-          <button onClick={submit} style={{marginLeft:"auto",padding:"7px 20px",borderRadius:20,border:"none",background:C.grad,color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"inherit",boxShadow:"0 2px 8px rgba(139,124,246,.4)"}}>โพสต์ ✨</button>
+          <Btn onClick={submit} v="primary" sz="sm" style={{ marginLeft:"auto" }}>โพสต์</Btn>
         </div>
-        {showM&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:10,marginLeft:51}}>{MOODS.map(m=><button key={m} onClick={()=>{setMood(m);setShowM(false);}} style={{padding:"5px 11px",borderRadius:20,border:"1px solid "+(mood===m?C.brand:C.border),background:mood===m?C.gradSoft:"#fff",color:mood===m?C.brand:C.sub,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>{m}</button>)}</div>}
+        {showM && (
+          <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginTop:10, marginLeft:54 }}>
+            {MOODS.map(m=><Btn key={m} onClick={()=>{setMood(m);setShowM(false);}} v={mood===m?"outline":"ghost"} sz="sm">{m}</Btn>)}
+          </div>
+        )}
       </div>
     </Card>
   );
 }
 
-// ── Feed ──────────────────────────────────────────────────
-function FeedPage({posts,setPosts}){
+function FeedPage({ posts, setPosts }) {
   function handleLike(id){setPosts(ps=>ps.map(p=>p.id===id?{...p,liked:!p.liked,likes:p.liked?p.likes-1:p.likes+1}:p));}
-  function handleComment(id,text){setPosts(ps=>ps.map(p=>p.id===id?{...p,comments:[...p.comments,{id:Date.now(),author:"สิทธิชัย",init:"สต",bg:"#EDE9FE",tc:C.brand,text,time:"เมื่อกี้"}]}:p));}
-  function handlePost({text,mood,privacy,images}){setPosts(ps=>[{id:Date.now(),author:"สิทธิชัย",init:"สต",bg:"#EDE9FE",tc:C.brand,time:"เมื่อกี้",content:text,mood,privacy,likes:0,liked:false,images:images||[],comments:[]},...ps]);}
-  return(<div><NewPostBox onPost={handlePost}/>{posts.map(p=><PostCard key={p.id} p={p} onLike={handleLike} onComment={handleComment}/>)}</div>);
+  function handleComment(id,text){setPosts(ps=>ps.map(p=>p.id===id?{...p,comments:[...p.comments,{id:"c"+Date.now(),author:"คุณ",init:"ME",bg:T.card,tc:T.brand2,text,time:"เมื่อกี้"}]}:p));}
+  function handlePost({text,mood,privacy,images}){setPosts(ps=>[{id:"p"+Date.now(),author:"คุณ",init:"ME",bg:T.card,tc:T.brand2,time:"เมื่อกี้",content:text,mood,privacy,likes:0,liked:false,images:images||[],comments:[]},...ps]);}
+  return (<div><NewPostBox onPost={handlePost}/>{posts.map(p=><PostCard key={p.id} p={p} onLike={handleLike} onComment={handleComment}/>)}</div>);
 }
 
-// ── Chat ──────────────────────────────────────────────────
-function ChatPage(){
+function ChatPage() {
   const [chats,setChats]=useState(INIT_CHATS);
   const [active,setActive]=useState(1);
   const [input,setInput]=useState("");
@@ -348,119 +573,88 @@ function ChatPage(){
   const fileRef=useRef();
   const endRef=useRef();
   useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth"});},[chats,active]);
-
   const friend=FRIENDS.find(f=>f.id===active);
   const msgs=chats[active]||[];
+  function send(){const txt=input.trim();if(!txt&&!chatImg)return;const nm=[];if(chatImg)nm.push({id:"im"+Date.now(),from:"me",type:"image",src:chatImg});if(txt)nm.push({id:"tx"+Date.now()+1,from:"me",type:"text",text:txt});setChats(c=>({...c,[active]:[...(c[active]||[]),...nm]}));setInput("");setChatImg(null);setTimeout(()=>{const r=AUTO_REPLIES[Math.floor(Math.random()*AUTO_REPLIES.length)];setChats(c=>({...c,[active]:[...(c[active]||[]),{id:"au"+Date.now(),from:"them",type:"text",text:r}]}));},800+Math.random()*500);}
+  function toggleVoice(){const nx=!voiceOn;setVoiceOn(nx);const sys={id:"sy"+Date.now(),from:"system",text:nx?`🎙️ เปิดห้องเสียงแล้ว — รอ ${friend.name} รับสาย...`:"📵 วางสายแล้ว"};setChats(c=>({...c,[active]:[...(c[active]||[]),sys]}));if(nx)setTimeout(()=>setChats(c=>({...c,[active]:[...(c[active]||[]),{id:"sy2"+Date.now(),from:"system",text:`✅ ${friend.name} รับสายแล้ว! 💜`}]})),1400);}
 
-  function send(){
-    const txt=input.trim();
-    if(!txt&&!chatImg)return;
-    const newMsgs=[];
-    if(chatImg)newMsgs.push({id:Date.now(),from:"me",type:"image",src:chatImg});
-    if(txt)newMsgs.push({id:Date.now()+1,from:"me",type:"text",text:txt});
-    setChats(c=>({...c,[active]:[...(c[active]||[]),...newMsgs]}));
-    setInput("");setChatImg(null);
-    setTimeout(()=>{
-      const r=AUTO_REPLIES[Math.floor(Math.random()*AUTO_REPLIES.length)];
-      setChats(c=>({...c,[active]:[...(c[active]||[]),{id:Date.now()+2,from:"them",type:"text",text:r}]}));
-    },900+Math.random()*500);
-  }
-
-  function toggleVoice(){
-    const next=!voiceOn;setVoiceOn(next);
-    if(next){
-      setChats(c=>({...c,[active]:[...(c[active]||[]),{id:Date.now(),from:"system",text:`🎙️ เปิดห้องเสียงแล้ว — รอ ${friend.name} รับสาย...`}]}));
-      setTimeout(()=>setChats(c=>({...c,[active]:[...(c[active]||[]),{id:Date.now(),from:"system",text:`✅ ${friend.name} รับสายแล้ว! คุยได้เลย 💜`}]})),1400);
-    } else {
-      setChats(c=>({...c,[active]:[...(c[active]||[]),{id:Date.now(),from:"system",text:"📵 วางสายแล้ว"}]}));
-    }
-  }
-
-  return(
-    <div style={{display:"flex",height:"calc(100vh - 116px)",minHeight:460}}>
+  return (
+    <div style={{ display:"flex", height:"calc(100dvh - 56px)", overflow:"hidden" }}>
       {/* Sidebar */}
-      <div style={{width:200,borderRight:"1px solid "+C.border,background:C.surface,display:"flex",flexDirection:"column",flexShrink:0}}>
-        <div style={{padding:"14px 14px 10px",borderBottom:"1px solid "+C.border}}>
-          <div style={{fontSize:13,fontWeight:700,color:C.text}}>ข้อความ</div>
-        </div>
-        <div style={{flex:1,overflowY:"auto"}}>
-          {FRIENDS.map(f=>(
-            <div key={f.id} onClick={()=>setActive(f.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",background:active===f.id?C.gradSoft:"transparent",borderBottom:"1px solid "+C.border,transition:"background .15s"}}>
-              <Av init={f.init} bg={f.bg} tc={f.tc} size={34} online={f.online}/>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:13,fontWeight:700,color:active===f.id?C.brand:C.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{f.name}</div>
-                <div style={{fontSize:11,color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{(chats[f.id]||[]).filter(m=>m.type==="text").slice(-1)[0]?.text||"..."}</div>
-              </div>
-            </div>
-          ))}
-        </div>
+      <div style={{ width:64, borderRight:"1px solid "+T.border, background:T.surface, display:"flex", flexDirection:"column", alignItems:"center", paddingTop:10, gap:4, flexShrink:0 }}>
+        {FRIENDS.map(f=>(
+          <button key={f.id} onClick={()=>setActive(f.id)}
+            style={{ background:"transparent", border:"none", cursor:"pointer", padding:"6px 0", opacity:active===f.id?1:.5, transition:"opacity .15s", position:"relative" }}>
+            <Av init={f.init} bg={f.bg} tc={f.tc} size={40} online={f.online}/>
+            {active===f.id && <div style={{ position:"absolute", left:-0, top:"50%", transform:"translateY(-50%)", width:3, height:28, background:T.brand, borderRadius:"0 3px 3px 0" }}/>}
+          </button>
+        ))}
       </div>
 
       {/* Main */}
-      <div style={{flex:1,display:"flex",flexDirection:"column",background:C.bg,minWidth:0}}>
+      <div style={{ flex:1, display:"flex", flexDirection:"column", minWidth:0 }}>
         {/* Header */}
-        <div style={{padding:"10px 16px",borderBottom:"1px solid "+C.border,background:C.surface,display:"flex",alignItems:"center",gap:11,flexShrink:0}}>
+        <div style={{ padding:"10px 14px", borderBottom:"1px solid "+T.border, background:T.surface, display:"flex", alignItems:"center", gap:10, flexShrink:0 }}>
           <Av init={friend.init} bg={friend.bg} tc={friend.tc} size={36} online={friend.online}/>
-          <div style={{flex:1}}>
-            <div style={{fontSize:14,fontWeight:700,color:C.text}}>{friend.name}</div>
-            <div style={{fontSize:12,color:C.muted,display:"flex",alignItems:"center",gap:6}}>
-              {friend.online&&<><div style={{width:6,height:6,borderRadius:"50%",background:C.green}}/><span>ออนไลน์</span></>}
-              {friend.mood&&<Pill bg={C.gradSoft} tc={C.brand}>✦ {friend.mood}</Pill>}
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:14, fontWeight:700, color:T.text }}>{friend.name}</div>
+            <div style={{ fontSize:12, color:T.muted, display:"flex", alignItems:"center", gap:6 }}>
+              {friend.online&&<><div style={{ width:6,height:6,borderRadius:"50%",background:T.green }}/><span>ออนไลน์</span></>}
+              {friend.mood && <Chip active color={T.brand}>{friend.mood}</Chip>}
             </div>
           </div>
-          <button onClick={toggleVoice} style={{padding:"7px 14px",borderRadius:20,border:"1px solid "+(voiceOn?C.brand:C.border),background:voiceOn?C.grad:"#fff",color:voiceOn?"#fff":C.sub,cursor:"pointer",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:5,boxShadow:voiceOn?"0 2px 8px rgba(139,124,246,.35)":"none",transition:"all .2s"}}>
-            🎙️ {voiceOn?"กำลังคุย":"เปิดเสียง"}
-          </button>
+          <Btn onClick={toggleVoice} v={voiceOn?"primary":"ghost"} sz="sm">🎙️ {voiceOn?"คุยอยู่":"เสียง"}</Btn>
         </div>
 
         {/* Voice bar */}
-        {voiceOn&&(
-          <div style={{background:C.gradSoft,borderBottom:"1px solid "+C.border,padding:"12px 16px",flexShrink:0}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-              <div style={{fontSize:13,fontWeight:700,color:C.brand,display:"flex",alignItems:"center",gap:6}}>
-                <div style={{width:8,height:8,borderRadius:"50%",background:C.green,animation:"pulse 1.5s infinite"}}/>
-                ห้องเสียง — กำลังคุยกัน
+        {voiceOn && (
+          <div style={{ background:T.brand+"15", borderBottom:"1px solid "+T.borderHi, padding:"10px 14px", flexShrink:0 }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+              <div style={{ fontSize:13, fontWeight:700, color:T.brand2, display:"flex", alignItems:"center", gap:7 }}>
+                <div style={{ width:8,height:8,borderRadius:"50%",background:T.green,boxShadow:"0 0 6px "+T.green }}/>ห้องเสียง
               </div>
-              <div style={{display:"flex",gap:6}}>
-                <button onClick={()=>setMicOn(!micOn)} style={{padding:"5px 11px",borderRadius:20,border:"1px solid "+C.brand,background:"#fff",color:C.brand,cursor:"pointer",fontSize:12,fontWeight:600}}>{micOn?"🎙️ ไมค์เปิด":"🔇 ไมค์ปิด"}</button>
-                <button onClick={toggleVoice} style={{padding:"5px 11px",borderRadius:20,border:"1px solid "+C.red,background:C.redL,color:C.red,cursor:"pointer",fontSize:12,fontWeight:600}}>📵 วางสาย</button>
+              <div style={{ display:"flex", gap:6 }}>
+                <Btn onClick={()=>setMicOn(!micOn)} v="ghost" sz="sm">{micOn?"🎙️":"🔇"}</Btn>
+                <Btn onClick={toggleVoice} v="danger" sz="sm">วางสาย</Btn>
               </div>
             </div>
-            <div style={{display:"flex",gap:16}}>
-              {[{init:"สต",grad:C.grad,tc:"#fff",name:"คุณ",sp:true},{init:friend.init,bg:friend.bg,tc:friend.tc,name:friend.name,sp:false}].map((u,i)=>(
-                <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5}}>
-                  <div style={{padding:2,borderRadius:"50%",border:"2.5px solid "+(u.sp?C.green:C.brand)}}>
-                    <Av init={u.init} bg={u.bg} grad={u.grad} tc={u.tc} size={42}/>
+            <div style={{ display:"flex", gap:14 }}>
+              {[{init:"ME",grad:true,name:"คุณ",sp:true},{init:friend.init,bg:friend.bg,tc:friend.tc,name:friend.name,sp:false}].map((u,i)=>(
+                <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+                  <div style={{ padding:2, borderRadius:"50%", border:"2.5px solid "+(u.sp?T.green:T.border), boxShadow:u.sp?"0 0 10px rgba(16,185,129,.3)":"none" }}>
+                    <Av init={u.init} bg={u.bg} grad={u.grad} tc={u.tc} size={40}/>
                   </div>
-                  <div style={{fontSize:12,color:C.brand,fontWeight:700}}>{u.name}</div>
-                  <div style={{fontSize:11,color:C.muted}}>{u.sp?(micOn?"🎙️":"🔇"):"🎧"}</div>
+                  <div style={{ fontSize:11, color:T.brand2, fontWeight:700 }}>{u.name}</div>
+                  <Chip active={u.sp} color={u.sp?T.green:undefined}>{u.sp?(micOn?"🎙️":"🔇"):"🎧"}</Chip>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        {chatImg&&(
-          <div style={{padding:"8px 16px 0",flexShrink:0}}>
-            <div style={{position:"relative",display:"inline-block"}}>
-              <img src={chatImg} alt="" style={{height:64,borderRadius:10,objectFit:"cover",border:"1px solid "+C.border}}/>
-              <button onClick={()=>setChatImg(null)} style={{position:"absolute",top:-4,right:-4,width:18,height:18,borderRadius:"50%",background:"#555",border:"none",color:"#fff",cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+        {chatImg && (
+          <div style={{ padding:"8px 14px 0", flexShrink:0 }}>
+            <div style={{ position:"relative", display:"inline-block" }}>
+              <img src={chatImg} alt="" style={{ height:60, borderRadius:10, objectFit:"cover", border:"1px solid "+T.border }}/>
+              <button onClick={()=>setChatImg(null)} style={{ position:"absolute",top:-4,right:-4,width:18,height:18,borderRadius:"50%",background:"#333",border:"none",color:"#fff",cursor:"pointer",fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit" }}>✕</button>
             </div>
           </div>
         )}
 
-        <div style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:8}}>
+        <div style={{ flex:1, overflowY:"auto", padding:"12px 14px", display:"flex", flexDirection:"column", gap:8 }}>
           {msgs.map(m=>{
-            if(m.from==="system")return<div key={m.id} style={{textAlign:"center",fontSize:12,color:C.muted,padding:"4px 0",background:"transparent"}}>{m.text}</div>;
+            if(m.from==="system")return<div key={m.id} style={{ textAlign:"center",fontSize:12,color:T.muted,padding:"3px 0" }}>{m.text}</div>;
             const me=m.from==="me";
             return(
-              <div key={m.id} style={{display:"flex",gap:8,alignItems:"flex-end",flexDirection:me?"row-reverse":"row"}}>
-                {!me&&<Av init={friend.init} bg={friend.bg} tc={friend.tc} size={28}/>}
-                <div style={{maxWidth:"70%"}}>
-                  {m.type==="image"
-                    ?<img src={m.src} alt="" style={{maxWidth:"100%",borderRadius:14,display:"block",border:"1px solid "+C.border}}/>
-                    :<div style={{padding:"9px 14px",borderRadius:16,fontSize:14,lineHeight:1.55,background:me?C.grad:"#fff",color:me?"#fff":C.text,border:me?"none":"1px solid "+C.border,borderBottomLeftRadius:!me?4:16,borderBottomRightRadius:me?4:16,boxShadow:me?"0 2px 8px rgba(139,124,246,.3)":"0 1px 4px rgba(0,0,0,.04)"}}>{m.text}</div>
-                  }
+              <div key={m.id} style={{ display:"flex", gap:8, alignItems:"flex-end", flexDirection:me?"row-reverse":"row" }}>
+                {!me && <Av init={friend.init} bg={friend.bg} tc={friend.tc} size={28}/>}
+                <div style={{ maxWidth:"72%" }}>
+                  {m.type==="image"?<img src={m.src} alt="" style={{ maxWidth:"100%",borderRadius:14,display:"block",border:"1px solid "+T.border }}/>
+                  :<div style={{ padding:"9px 14px", borderRadius:16, fontSize:14, lineHeight:1.55,
+                    background:me?T.brandGrad:T.card, color:me?"#fff":T.text,
+                    border:me?"none":"1px solid "+T.border,
+                    borderBottomLeftRadius:!me?4:16, borderBottomRightRadius:me?4:16,
+                    boxShadow:me?"0 2px 12px rgba(124,92,252,.3)":"none" }}>{m.text}</div>}
                 </div>
               </div>
             );
@@ -468,12 +662,14 @@ function ChatPage(){
           <div ref={endRef}/>
         </div>
 
-        <div style={{padding:"10px 16px",borderTop:"1px solid "+C.border,background:C.surface,flexShrink:0}}>
-          <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setChatImg(ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
-          <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
-            <button onClick={()=>fileRef.current.click()} style={{width:36,height:36,borderRadius:"50%",border:"1px solid "+C.border,background:C.bg,cursor:"pointer",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>📷</button>
-            <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}} placeholder="พิมพ์ข้อความ..." rows={1} style={{flex:1,border:"1px solid "+C.border,borderRadius:20,padding:"9px 16px",fontSize:14,color:C.text,background:C.bg,outline:"none",resize:"none",fontFamily:"inherit",lineHeight:1.4}}/>
-            <button onClick={send} style={{width:38,height:38,borderRadius:"50%",background:C.grad,border:"none",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff",flexShrink:0,fontSize:17,boxShadow:"0 2px 8px rgba(139,124,246,.4)"}}>↑</button>
+        <div style={{ padding:"10px 14px", borderTop:"1px solid "+T.border, background:T.surface, flexShrink:0 }}>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display:"none" }} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setChatImg(ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
+          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+            <button onClick={()=>fileRef.current.click()} style={{ width:36,height:36,borderRadius:"50%",border:"1px solid "+T.border,background:T.card,cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontFamily:"inherit" }}>📷</button>
+            <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")send();}} placeholder="พิมพ์ข้อความ..."
+              style={{ flex:1, border:"1px solid "+T.border, borderRadius:20, padding:"9px 16px", fontSize:14, color:T.text, background:T.card, outline:"none", fontFamily:"inherit" }}
+              onFocus={e=>e.target.style.borderColor=T.borderHi} onBlur={e=>e.target.style.borderColor=T.border}/>
+            <button onClick={send} style={{ width:38,height:38,borderRadius:"50%",background:T.brandGrad,border:"none",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff",flexShrink:0,fontSize:17,boxShadow:"0 2px 10px rgba(124,92,252,.4)",fontFamily:"inherit" }}>↑</button>
           </div>
         </div>
       </div>
@@ -481,150 +677,201 @@ function ChatPage(){
   );
 }
 
-// ── Voice Rooms (เพิ่มระบบ Host จัดการสมาชิก) ────────────────
-function VoiceRoomsPage(){
-  const [rooms,setRooms]=useState(VOICE_ROOMS);
-  const [inRoom,setInRoom]=useState(null);
-  const [micOn,setMicOn]=useState(true);
-  const [showMusic,setShowMusic]=useState(false);
-  const [newName,setNewName]=useState("");
-  const [creating,setCreating]=useState(false);
-  const [nameErr,setNameErr]=useState("");
+// ─────────────────────────────────────────────
+// Profile (persistent)
+// ─────────────────────────────────────────────
+function ProfilePage({ user, posts }) {
+  const [bio, setBio] = useState(()=>store.get("bio","ชอบคุยเล่น • ฟังเพลง • หาเพื่อนใหม่ 💜"));
+  const [mood, setMood] = useState(()=>store.get("mood","สบายดี 😊"));
+  const [editing, setEditing] = useState(false);
+  const [bioInput, setBioInput] = useState(bio);
+  const [showMP, setShowMP] = useState(false);
+  const [coverImg, setCoverImg] = useState(()=>store.get("coverImg",""));
+  const [avatarImg, setAvatarImg] = useState(()=>store.get("avatarImg",""));
+  const coverRef = useRef(); const avatarRef = useRef();
+  const myPosts = posts.filter(p=>p.author==="คุณ");
 
-  function join(r){setInRoom(JSON.parse(JSON.stringify(r)));setMicOn(true);setShowMusic(false);}
-  function leave(){setInRoom(null);setShowMusic(false);}
-  
-  function createRoom(){
-    if(!newName.trim()){setNameErr("ใส่ชื่อห้องก่อนนะ");return;}
-    const r={
-      id:Date.now(),
-      name:newName.trim(),
-      host:"คุณ",
-      users:[{name:"คุณ",init:"สต",grad:C.grad,tc:"#fff",mic:true,isMe:true}],
-      vibe:"🎵"
-    };
-    setRooms(rs=>[r,...rs]);
-    setInRoom(r);
-    setNewName("");
-    setCreating(false);
-    setNameErr("");
-  }
-
-  // ฟังก์ชันให้ Host ปิดไมค์สมาชิกคนอื่น
-  function toggleUserMic(index){
-    if(!inRoom)return;
-    const updatedUsers=[...inRoom.users];
-    updatedUsers[index].mic=!updatedUsers[index].mic;
-    setInRoom({...inRoom,users:updatedUsers});
-  }
-
-  // ฟังก์ชันให้ Host เตะคนออกจากห้อง
-  function kickUser(index){
-    if(!inRoom)return;
-    const updatedUsers=inRoom.users.filter((_,i)=>i!==index);
-    setInRoom({...inRoom,users:updatedUsers});
-  }
-
-  const isHost = inRoom && inRoom.host === "คุณ";
-
-  return(
-    <div>
-      {/* Active room */}
-      {inRoom&&(
-        <div style={{background:C.gradSoft,border:"1px solid "+C.brand,borderRadius:18,padding:"16px",marginBottom:16,boxShadow:"0 4px 20px rgba(139,124,246,.15)"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-            <div style={{fontSize:15,fontWeight:700,color:C.brand,display:"flex",alignItems:"center",gap:8}}>
-              <div style={{width:9,height:9,borderRadius:"50%",background:C.green,boxShadow:"0 0 6px "+C.green}}/>
-              {inRoom.vibe} {inRoom.name} <span style={{fontSize:11,background:C.brand,color:"#fff",padding:"2px 8px",borderRadius:10}}>Host: {inRoom.host}</span>
-            </div>
-            <div style={{display:"flex",gap:7}}>
-              <button onClick={()=>setShowMusic(!showMusic)} style={{padding:"6px 12px",borderRadius:20,border:"1px solid "+C.brand,background:showMusic?C.brand:"#fff",color:showMusic?"#fff":C.brand,cursor:"pointer",fontSize:12,fontWeight:600}}>🎵 เพลง/YT</button>
-              <button onClick={()=>setMicOn(!micOn)} style={{padding:"6px 12px",borderRadius:20,border:"1px solid "+C.brand,background:"#fff",color:C.brand,cursor:"pointer",fontSize:12,fontWeight:600}}>{micOn?"🎙️ เปิดไมค์":"🔇 ปิดไมค์"}</button>
-              <button onClick={leave} style={{padding:"6px 12px",borderRadius:20,border:"1px solid "+C.red,background:C.redL,color:C.red,cursor:"pointer",fontSize:12,fontWeight:600}}>📵 ออกจากห้อง</button>
-            </div>
-          </div>
-
-          {/* รายชื่อคนในห้องพร้อมปุ่มจัดการของ Host */}
-          <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:showMusic?14:0}}>
-            {inRoom.users.map((u,i)=>(
-              <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,background:"#fff",padding:10,borderRadius:14,border:"1px solid "+C.border}}>
-                <div style={{padding:2,borderRadius:"50%",border:"2.5px solid "+(u.mic?C.green:C.muted)}}>
-                  <Av init={u.init||u.name.slice(0,2)} bg={u.bg} grad={u.grad} tc={u.tc} size={40}/>
-                </div>
-                <div style={{fontSize:12,color:C.text,fontWeight:700}}>{u.name}</div>
-                <div style={{fontSize:11,color:C.sub}}>{u.mic?"🎙️ พูดอยู่":"🔇 ปิดไมค์"}</div>
-
-                {/* ปุ่มควบคุมเฉพาะ Host */}
-                {isHost && !u.isMe && (
-                  <div style={{display:"flex",gap:4,marginTop:4}}>
-                    <button onClick={()=>toggleUserMic(i)} style={{fontSize:10,padding:"2px 6px",borderRadius:6,border:"1px solid "+C.border,background:C.bg,cursor:"pointer"}}>
-                      {u.mic?"ปิดไมค์":"เปิดไมค์"}
-                    </button>
-                    <button onClick={()=>kickUser(i)} style={{fontSize:10,padding:"2px 6px",borderRadius:6,border:"1px solid "+C.red,background:C.redL,color:C.red,cursor:"pointer"}}>
-                      เตะ
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {showMusic&&<MusicPlayer/>}
-        </div>
-      )}
-
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
-        <div style={{fontSize:15,fontWeight:700,color:C.text}}>ห้องเสียงที่เปิดอยู่ 🎙️</div>
-        <button onClick={()=>setCreating(!creating)} style={{padding:"7px 16px",borderRadius:20,border:"1px solid "+C.brand,background:creating?C.grad:C.gradSoft,color:creating?"#fff":C.brand,cursor:"pointer",fontSize:13,fontWeight:700,boxShadow:creating?"0 2px 8px rgba(139,124,246,.3)":"none"}}>+ เปิดห้องใหม่</button>
-      </div>
-
-      {creating&&(
-        <Card style={{marginBottom:14}}>
-          <div style={{padding:"14px 16px"}}>
-            <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:10}}>ชื่อห้องใหม่ที่คุณต้องการสร้าง</div>
-            <div style={{display:"flex",gap:8}}>
-              <input value={newName} onChange={e=>{setNewName(e.target.value);setNameErr("");}} onKeyDown={e=>e.key==="Enter"&&createRoom()} placeholder="เช่น คืนนี้ใครว่างคุยเล่นกัน 🌙" style={{flex:1,border:"1px solid "+C.border,borderRadius:12,padding:"9px 14px",fontSize:14,outline:"none",background:C.bg,color:C.text,fontFamily:"inherit"}}/>
-              <button onClick={createRoom} style={{padding:"9px 18px",borderRadius:12,border:"none",background:C.grad,color:"#fff",cursor:"pointer",fontSize:14,fontWeight:700}}>สร้างห้อง</button>
-            </div>
-            {nameErr && <div style={{ fontSize: 12, color: C.red, marginTop: 6 }}>{nameErr}</div>}
-          </div>
-        </Card>
-      )}
-
-      {/* รายการห้องทั้งหมด */}
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {rooms.map(r=>(
-          <div key={r.id} onClick={()=>join(r)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:14,background:C.surface,borderRadius:14,border:"1px solid "+C.border,cursor:"pointer",transition:"all .2s"}}>
-            <div>
-              <div style={{fontSize:14,fontWeight:700,color:C.text}}>{r.vibe} {r.name}</div>
-              <div style={{fontSize:12,color:C.sub,marginTop:2}}>เจ้าของห้อง: {r.host} · มีคนอยู่ในห้อง {r.users?.length || 0} คน</div>
-            </div>
-            <button style={{padding:"6px 14px",borderRadius:20,border:"none",background:C.gradSoft,color:C.brand,fontSize:12,fontWeight:700,cursor:"pointer"}}>เข้าร่วมฟัง/พูด</button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── App (คอมโพเนนต์หลัก) ───────────────────────────────────────────
-export default function App() {
-  const [posts, setPosts] = useState(INIT_POSTS);
-  const [tab, setTab] = useState("feed");
+  const saveBio = () => { setBio(bioInput); store.set("bio",bioInput); setEditing(false); };
+  const saveMood = m => { setMood(m); store.set("mood",m); setShowMP(false); };
+  const saveCover = e => { const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=ev=>{setCoverImg(ev.target.result);store.set("coverImg",ev.target.result);}; r.readAsDataURL(f); e.target.value=""; };
+  const saveAvatar = e => { const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=ev=>{setAvatarImg(ev.target.result);store.set("avatarImg",ev.target.result);}; r.readAsDataURL(f); e.target.value=""; };
 
   return (
-    <div style={{ maxWidth: 800, margin: "0 auto", padding: 20, fontFamily: "sans-serif", background: C.bg, minHeight: "100vh" }}>
-      {/* เมนูนำทาง */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 20, background: C.surface, padding: 15, borderRadius: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
-        <Pill active={tab === "feed"} onClick={() => setTab("feed")}>📝 ฟีด</Pill>
-        <Pill active={tab === "chat"} onClick={() => setTab("chat")}>💬 แชท</Pill>
-        <Pill active={tab === "voice"} onClick={() => setTab("voice")}>🎙️ ห้องเสียง</Pill>
+    <div>
+      <Card style={{ marginBottom:14, overflow:"hidden" }}>
+        <div style={{ height:120, background:coverImg?`url(${coverImg}) center/cover`:T.brandGrad, position:"relative", cursor:"pointer" }} onClick={()=>coverRef.current.click()}>
+          {!coverImg && <div style={{ position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",color:"rgba(255,255,255,.4)",fontSize:13 }}>✏️ เปลี่ยนรูปปก</div>}
+          <input ref={coverRef} type="file" accept="image/*" style={{ display:"none" }} onChange={saveCover}/>
+        </div>
+        <div style={{ padding:"0 18px 20px", position:"relative" }}>
+          <div style={{ position:"absolute", top:-34, left:18, cursor:"pointer" }} onClick={()=>avatarRef.current.click()}>
+            {avatarImg
+              ? <div style={{ width:68,height:68,borderRadius:"50%",overflow:"hidden",border:"4px solid "+T.bg,boxShadow:"0 4px 16px rgba(124,92,252,.4)" }}><img src={avatarImg} alt="" style={{ width:"100%",height:"100%",objectFit:"cover" }}/></div>
+              : <div style={{ width:68,height:68,borderRadius:"50%",background:T.brandGrad,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,fontWeight:700,border:"4px solid "+T.bg,boxShadow:"0 4px 16px rgba(124,92,252,.4)" }}>สต</div>
+            }
+            <input ref={avatarRef} type="file" accept="image/*" style={{ display:"none" }} onChange={saveAvatar}/>
+          </div>
+          <div style={{ paddingTop:42 }}>
+            <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between" }}>
+              <div>
+                <div style={{ fontSize:19, fontWeight:800, color:T.text }}>{user.name}</div>
+                {user.isGuest && <Chip active color={T.yellow}>👋 ผู้เยี่ยมชม</Chip>}
+                {editing
+                  ? <div style={{ marginTop:7, display:"flex", gap:7 }}>
+                      <Input value={bioInput} onChange={e=>setBioInput(e.target.value)} style={{ width:220, padding:"6px 11px", fontSize:13 }}/>
+                      <Btn onClick={saveBio} v="primary" sz="sm">บันทึก</Btn>
+                    </div>
+                  : <div style={{ fontSize:13, color:T.sub, marginTop:5, lineHeight:1.6 }}>{bio}</div>
+                }
+                <div style={{ marginTop:9 }}>
+                  <Chip active color={T.brand} onClick={()=>setShowMP(!showMP)}>✦ {mood}</Chip>
+                </div>
+                {showMP && <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginTop:8 }}>{MOODS.map(m=><Btn key={m} onClick={()=>saveMood(m)} v={mood===m?"outline":"ghost"} sz="sm">{m}</Btn>)}</div>}
+              </div>
+              <Btn onClick={()=>{setEditing(!editing);setBioInput(bio);}} v="ghost" sz="sm">✏️</Btn>
+            </div>
+            <div style={{ display:"flex", gap:28, marginTop:16, paddingTop:14, borderTop:"1px solid "+T.border }}>
+              {[["48","เพื่อน"],[String(myPosts.length),"โพสต์"],["1.2k","เข้าชม"]].map(([n,l])=>(
+                <div key={l} style={{ textAlign:"center" }}>
+                  <div style={{ fontSize:19, fontWeight:800, background:T.brandGrad, WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent" }}>{n}</div>
+                  <div style={{ fontSize:12, color:T.muted }}>{l}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <div style={{ padding:"16px 18px" }}>
+          <div style={{ fontSize:14, fontWeight:700, color:T.text, marginBottom:14 }}>โพสต์ของฉัน</div>
+          {myPosts.length===0 && <div style={{ fontSize:13, color:T.muted, textAlign:"center", padding:"20px 0" }}>ยังไม่มีโพสต์ — ลองโพสต์แรกได้เลย! ✨</div>}
+          {myPosts.map(p=>(
+            <div key={p.id} style={{ borderBottom:"1px solid "+T.border, paddingBottom:12, marginBottom:12 }}>
+              {p.images?.length>0 && <div style={{ display:"flex", gap:5, marginBottom:7, flexWrap:"wrap" }}>{p.images.map((src,i)=><img key={i} src={src} alt="" style={{ width:56,height:56,borderRadius:10,objectFit:"cover",border:"1px solid "+T.border }}/>)}</div>}
+              {p.content && <div style={{ fontSize:13, color:T.sub, lineHeight:1.65 }}>{p.content}</div>}
+              <div style={{ fontSize:11, color:T.muted, marginTop:5, display:"flex", gap:8, flexWrap:"wrap", alignItems:"center" }}>
+                <span>{p.time}</span><span>{PV_ICO[p.privacy]}</span>
+                {p.mood && <Chip active color={T.brand}>✦ {p.mood}</Chip>}
+                <span>❤️{p.likes}</span><span>💬{p.comments.length}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function PrivacyPage(){
+  const [s,setS]=useState({postDef:"public",whoSee:"public",whoCmt:"everyone",whoMsg:"everyone",showMood:true,showOnline:true,showLast:true,friendList:"friends"});
+  const set=(k,v)=>setS(p=>({...p,[k]:v}));
+  const pv=[{v:"public",l:"🌐 สาธารณะ"},{v:"friends",l:"👥 เพื่อนเท่านั้น"},{v:"only_me",l:"🔒 ฉันเท่านั้น"}];
+  const ev=[{v:"everyone",l:"ทุกคน"},{v:"friends",l:"เพื่อนเท่านั้น"},{v:"none",l:"ไม่มีใคร"}];
+  const Row=({label,desc,k,type,opts})=>(
+    <div style={{padding:"13px 0",borderBottom:"1px solid "+T.border,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+      <div><div style={{fontSize:14,color:T.text,fontWeight:500}}>{label}</div>{desc&&<div style={{fontSize:12,color:T.muted,marginTop:2}}>{desc}</div>}</div>
+      {type==="toggle"
+        ?<div onClick={()=>set(k,!s[k])} style={{width:46,height:26,borderRadius:13,cursor:"pointer",background:s[k]?T.brand:"#333",position:"relative",transition:"background .2s",flexShrink:0}}>
+          <div style={{width:20,height:20,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:s[k]?23:3,transition:"left .22s",boxShadow:"0 1px 4px rgba(0,0,0,.4)"}}/>
+         </div>
+        :<select value={s[k]} onChange={e=>set(k,e.target.value)} style={{padding:"7px 10px",borderRadius:10,border:"1px solid "+T.border,background:T.surface,color:T.sub,fontSize:13,outline:"none",flexShrink:0,fontFamily:"inherit",cursor:"pointer"}}>{opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}</select>
+      }
+    </div>
+  );
+  const Sec=({title,children})=><Card style={{marginBottom:12}}><div style={{padding:"4px 18px"}}><div style={{fontSize:11,fontWeight:700,color:T.muted,padding:"12px 0 4px",textTransform:"uppercase",letterSpacing:1.2}}>{title}</div>{children}</div></Card>;
+  return(
+    <div>
+      <Card style={{marginBottom:14}}><div style={{padding:"18px 20px"}}><div style={{fontSize:17,fontWeight:800,color:T.text}}>ความเป็นส่วนตัว 🔒</div><div style={{fontSize:13,color:T.muted,marginTop:4}}>ปรับว่าใครเห็นอะไรได้บ้าง</div></div></Card>
+      <Sec title="โพสต์"><Row label="โพสต์เริ่มต้น" desc="ค่าเริ่มต้นเวลาสร้างโพสต์ใหม่" k="postDef" type="select" opts={pv}/><Row label="ใครเห็นโพสต์" k="whoSee" type="select" opts={pv}/><Row label="ใครเม้นได้" k="whoCmt" type="select" opts={ev}/></Sec>
+      <Sec title="โปรไฟล์"><Row label="แสดง Mood" k="showMood" type="toggle"/><Row label="แสดงสถานะออนไลน์" k="showOnline" type="toggle"/><Row label="แสดงเวลาออนไลน์ล่าสุด" k="showLast" type="toggle"/><Row label="ใครเห็นรายชื่อเพื่อน" k="friendList" type="select" opts={pv}/></Sec>
+      <Sec title="ข้อความและเสียง"><Row label="ใครส่งข้อความได้" k="whoMsg" type="select" opts={ev}/></Sec>
+      <Card><div style={{padding:"18px 20px"}}><div style={{fontSize:14,fontWeight:700,color:T.red,marginBottom:10}}>โซนอันตราย ⚠️</div><Btn v="danger" sz="md" full>ปิดบัญชีชั่วคราว</Btn></div></Card>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Root
+// ─────────────────────────────────────────────
+const TABS = [
+  {key:"feed",   icon:"🏠", label:"ฟีด"},
+  {key:"chat",   icon:"💬", label:"แชท"},
+  {key:"voice",  icon:"🎙️", label:"เสียง"},
+  {key:"profile",icon:"👤", label:"โปรไฟล์"},
+  {key:"privacy",icon:"🔒", label:"ส่วนตัว"},
+];
+
+export default function App() {
+  const [user, setUser] = useState(()=>store.get("user",null));
+  const [page, setPage] = useState("feed");
+  const [posts, setPosts] = useState(()=>{
+    const saved = store.get("posts", SEED_POSTS);
+    // ป้องกัน t.map is not a function — ถ้าไม่ใช่ array ให้ reset
+    return Array.isArray(saved) ? saved : SEED_POSTS;
+  });
+
+  // persist posts
+  useEffect(()=>{ store.set("posts",posts); },[posts]);
+
+  function handleLogout() { store.clear("user"); setUser(null); }
+  function handleResetData() {
+    ["posts","bio","mood","coverImg","avatarImg"].forEach(k => store.clear(k));
+    setPosts(SEED_POSTS);
+    alert("รีเซ็ตข้อมูลแล้ว ✅");
+  }
+
+  if (!user) return <AuthPage onLogin={setUser}/>;
+
+  return (
+    <div style={{ fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", minHeight:"100dvh", background:T.bg, display:"flex", flexDirection:"column", color:T.text, maxWidth:480, margin:"0 auto" }}>
+      <style>{`
+        *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+        body{background:${T.bg};margin:0}
+        ::-webkit-scrollbar{width:3px}
+        ::-webkit-scrollbar-thumb{background:${T.border};border-radius:3px}
+        input,textarea,select{color-scheme:dark}
+        @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+      `}</style>
+
+      {/* Top bar */}
+      <div style={{ background:T.glass, backdropFilter:"blur(20px)", WebkitBackdropFilter:"blur(20px)", borderBottom:"1px solid "+T.border, padding:"10px 14px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"sticky", top:0, zIndex:30 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:9 }}>
+          <div style={{ width:30,height:30,borderRadius:9,background:T.brandGrad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16 }}>💜</div>
+          <span style={{ fontSize:18, fontWeight:800, background:T.brandGrad, WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", letterSpacing:-.5 }}>Warmly</span>
+        </div>
+        <div style={{ display:"flex", alignItems:"center", gap:7 }}>
+          <span style={{ fontSize:13, color:T.sub, fontWeight:500 }}>{user.name}</span>
+          {user.isGuest && <Chip active color={T.yellow}>Guest</Chip>}
+          <button onClick={handleResetData} style={{ border:"1px solid "+T.border,borderRadius:9,background:"transparent",color:T.muted,cursor:"pointer",padding:"4px 9px",fontSize:11,fontFamily:"inherit" }} title="รีเซ็ตถ้าแอปค้าง">🔄</button>
+          <button onClick={handleLogout} style={{ border:"1px solid "+T.border,borderRadius:9,background:"transparent",color:T.muted,cursor:"pointer",padding:"4px 9px",fontSize:11,fontFamily:"inherit" }}>ออก</button>
+        </div>
       </div>
 
-      {/* สลับการแสดงผล */}
-      {tab === "feed" && <FeedPage posts={posts} setPosts={setPosts} />}
-      {tab === "chat" && <ChatPage />}
-      {tab === "voice" && <VoiceRoomsPage />}
+      {/* Content */}
+      <div style={{ flex:1, overflowY: page==="chat"?"hidden":"auto", display:"flex", flexDirection:"column" }}>
+        <div style={{ flex:1, padding: page==="chat"?"0":"14px 12px 80px" }}>
+          {page==="feed"    && <FeedPage posts={posts} setPosts={setPosts}/>}
+          {page==="chat"    && <ChatPage/>}
+          {page==="voice"   && <VoiceRoomsPage user={user}/>}
+          {page==="profile" && <ProfilePage user={user} posts={posts}/>}
+          {page==="privacy" && <PrivacyPage/>}
+        </div>
+      </div>
+
+      {/* Bottom nav */}
+      <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:480,
+        background:T.glass, backdropFilter:"blur(20px)", WebkitBackdropFilter:"blur(20px)",
+        borderTop:"1px solid "+T.border, display:"flex", zIndex:30,
+        paddingBottom:"env(safe-area-inset-bottom,0px)" }}>
+        {TABS.map(t=>(
+          <button key={t.key} onClick={()=>setPage(t.key)} style={{ flex:1, padding:"10px 4px 8px", border:"none", background:"transparent", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:3, transition:"all .15s", fontFamily:"inherit" }}>
+            <span style={{ fontSize:20, lineHeight:1 }}>{t.icon}</span>
+            <span style={{ fontSize:10, fontWeight:page===t.key?700:400, color:page===t.key?T.brand2:T.muted }}>{t.label}</span>
+            {page===t.key && <div style={{ width:16,height:2,borderRadius:2,background:T.brandGrad,marginTop:2 }}/>}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
