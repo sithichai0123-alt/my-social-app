@@ -252,11 +252,15 @@ function YoutubePlaylist({ playlist, setPlaylist, isHost }) {
   const [playing, setPlaying] = useState(null);
 
   function add() {
-    const id = getYTId(url);
-    if (!id) { setErr("ลิงก์ YouTube ไม่ถูกต้อง"); return; }
-    if (playlist.find(p=>p.id===id)) { setErr("เพลงนี้อยู่ใน playlist แล้ว"); return; }
-    setPlaylist(prev => [...prev, { id, title:title.trim()||"YouTube: "+id.slice(0,10)+"…", thumb:ytThumb(id) }]);
-    setUrl(""); setTitle(""); setErr("");
+    try {
+      const id = getYTId(url);
+      if (!id) { setErr("ลิงก์ YouTube ไม่ถูกต้อง"); return; }
+      const safeList = Array.isArray(playlist) ? playlist : [];
+      if (safeList.find(p=>p.id===id)) { setErr("เพลงนี้อยู่ใน playlist แล้ว"); return; }
+      const newSong = { id, title:title.trim()||"YouTube: "+id.slice(0,10)+"…", thumb:ytThumb(id) };
+      setPlaylist([...safeList, newSong]);
+      setUrl(""); setTitle(""); setErr("");
+    } catch(e) { setErr("เกิดข้อผิดพลาด ลองใหม่อีกครั้ง"); }
   }
 
   return (
@@ -292,14 +296,14 @@ function YoutubePlaylist({ playlist, setPlaylist, isHost }) {
         </div>
       )}
 
-      {playlist.length === 0 && (
+      {(!Array.isArray(playlist) || playlist.length === 0) && (
         <div style={{ textAlign:"center", padding:"14px 0", color:T.muted, fontSize:13 }}>
           {isHost ? "วาง YouTube URL ด้านบนเพื่อเพิ่มเพลง 🎵" : "Host ยังไม่ได้เพิ่มเพลง"}
         </div>
       )}
 
       <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
-        {playlist.map((s,i) => (
+        {(Array.isArray(playlist) ? playlist : []).map((s,i) => (
           <div key={s.id} style={{ display:"flex", gap:10, alignItems:"center", padding:"9px 12px", borderRadius:12,
             background: playing===s.id ? T.brand+"22" : T.surface,
             border:"1px solid "+(playing===s.id ? T.borderHi : T.border), cursor:"pointer", transition:"all .18s" }}>
@@ -315,7 +319,7 @@ function YoutubePlaylist({ playlist, setPlaylist, isHost }) {
                 style={{ border:"none", background:"transparent", color:playing===s.id?T.brand2:T.muted, cursor:"pointer", fontSize:16, fontFamily:"inherit" }}>
                 {playing===s.id?"⏸":"▶"}
               </button>
-              {isHost && <button onClick={()=>{setPlaylist(p=>p.filter(x=>x.id!==s.id));if(playing===s.id)setPlaying(null);}}
+              {isHost && <button onClick={()=>{setPlaylist(p=>(Array.isArray(p)?p:[]).filter(x=>x.id!==s.id));if(playing===s.id)setPlaying(null);}}
                 style={{ border:"none", background:"transparent", color:T.muted, cursor:"pointer", fontSize:14, fontFamily:"inherit" }}>✕</button>}
             </div>
           </div>
