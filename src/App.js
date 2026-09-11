@@ -291,7 +291,7 @@ function VoiceRoomsPage({user}){
 
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
         <div style={{fontSize:16,fontWeight:800,color:T.text}}>ห้องเสียง 🎙️</div>
-        <Btn onClick={()=>setCreating(!creating)} v={creating?"primary":"outline"} sz="sm">+ ห้องใหม่</Btn>
+        {!user.isGuest&&<Btn onClick={()=>setCreating(!creating)} v={creating?"primary":"outline"} sz="sm">+ ห้องใหม่</Btn>}
       </div>
 
       {creating&&(
@@ -343,10 +343,22 @@ function PostCard({p,user}){
   const [open,setOpen]=useState(false);
   const [cmt,setCmt]=useState("");
   const [err,setErr]=useState("");
+  const [liked,setLiked]=useState(false);
+  const [likeCount,setLikeCount]=useState(p.likes||0);
   const [comments,setComments]=useState(Array.isArray(p.comments)?p.comments:[]);
+  const isOwner=!user.isGuest&&p.author===user.name;
 
   async function handleLike(){
-    await updateDoc(doc(db,"posts",p.id),{likes:increment(p.liked?-1:1)});
+    if(user.isGuest)return;
+    const next=!liked;
+    setLiked(next);
+    setLikeCount(c=>next?c+1:c-1);
+    await updateDoc(doc(db,"posts",p.id),{likes:increment(next?1:-1)});
+  }
+
+  async function handleDelete(){
+    if(!window.confirm("ลบโพสต์นี้?"))return;
+    await deleteDoc(doc(db,"posts",p.id));
   }
 
   async function submitComment(){
@@ -377,9 +389,9 @@ function PostCard({p,user}){
       <ImgGrid images={p.images}/>
       <div style={{padding:"0 16px 14px"}}>
         <div style={{borderTop:"1px solid "+T.border,paddingTop:10,display:"flex",gap:7}}>
-          <Btn onClick={handleLike} v="ghost" sz="sm">🤍 {p.likes||0}</Btn>
-          <Btn onClick={()=>setOpen(!open)} v={open?"outline":"ghost"} sz="sm">💬 {(p.comments||[]).length}</Btn>
-          <Btn v="ghost" sz="sm">🔗</Btn>
+          <Btn onClick={handleLike} v={liked?"primary":"ghost"} sz="sm">{liked?"❤️":"🤍"} {likeCount}</Btn>
+          <Btn onClick={()=>setOpen(!open)} v={open?"outline":"ghost"} sz="sm">💬 {comments.length}</Btn>
+          {isOwner&&<Btn onClick={handleDelete} v="danger" sz="sm">🗑️ ลบ</Btn>}
         </div>
         {open&&(
           <div style={{marginTop:12}}>
@@ -409,6 +421,15 @@ function PostCard({p,user}){
 
 // ── New Post ──────────────────────────────────────────────
 function NewPostBox({user}){
+  if(user.isGuest) return(
+    <Card style={{marginBottom:14}}>
+      <div style={{padding:"20px 16px",textAlign:"center"}}>
+        <div style={{fontSize:20,marginBottom:8}}>🔒</div>
+        <div style={{fontSize:14,fontWeight:600,color:T.text,marginBottom:4}}>ต้องเข้าสู่ระบบด้วย Google</div>
+        <div style={{fontSize:13,color:T.muted}}>ผู้เยี่ยมชมไม่สามารถโพสต์ได้</div>
+      </div>
+    </Card>
+  );
   const [text,setText]=useState("");
   const [mood,setMood]=useState("");
   const [privacy,setPrivacy]=useState("public");
@@ -587,16 +608,20 @@ function ChatPage({user}){
 }
 
 // ── Profile ───────────────────────────────────────────────
-function ProfilePage({user,posts}){
-  const [bio,setBio]=useState(()=>ls.get("bio","ชอบคุยเล่น • ฟังเพลง • หาเพื่อนใหม่ 💜"));
+function ProfilePage({user,posts,onUpdateName}){
+  const [bio,setBio]=useState(()=>ls.get("bio","ชอบคุยเล่น • ฟังเพื่อนใหม่ 💜"));
   const [mood,setMood]=useState(()=>ls.get("mood","สบายดี 😊"));
   const [editing,setEditing]=useState(false);
   const [bioInput,setBioInput]=useState(bio);
+  const [displayName,setDisplayName]=useState(()=>ls.get("displayName",user.name));
+  const [editName,setEditName]=useState(false);
+  const [nameInput,setNameInput]=useState(displayName);
+  const saveName=()=>{setDisplayName(nameInput);ls.set("displayName",nameInput);onUpdateName&&onUpdateName(nameInput);setEditName(false);};
   const [showMP,setShowMP]=useState(false);
   const [coverImg,setCoverImg]=useState(()=>ls.get("coverImg",""));
   const [avatarImg,setAvatarImg]=useState(()=>ls.get("avatarImg",""));
   const coverRef=useRef();const avatarRef=useRef();
-  const myPosts=posts.filter(p=>p.author===user.name);
+  const myPosts=posts.filter(p=>p.author===user.name||p.author===displayName);
   const saveBio=()=>{setBio(bioInput);ls.set("bio",bioInput);setEditing(false);};
   const saveMood=m=>{setMood(m);ls.set("mood",m);setShowMP(false);};
   const saveCover=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{setCoverImg(ev.target.result);ls.set("coverImg",ev.target.result);};r.readAsDataURL(f);e.target.value="";};
@@ -617,7 +642,10 @@ function ProfilePage({user,posts}){
           <div style={{paddingTop:42}}>
             <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
               <div>
-                <div style={{fontSize:19,fontWeight:800,color:T.text}}>{user.name}</div>
+                {editName
+                  ?<div style={{marginTop:2,display:"flex",gap:7}}><Input value={nameInput} onChange={e=>setNameInput(e.target.value)} style={{width:180,padding:"6px 11px",fontSize:16,fontWeight:700}}/><Btn onClick={saveName} v="primary" sz="sm">บันทึก</Btn></div>
+                  :<div style={{fontSize:19,fontWeight:800,color:T.text,display:"flex",alignItems:"center",gap:8}}>{displayName}{!user.isGuest&&<span onClick={()=>{setEditName(true);setNameInput(displayName);}} style={{fontSize:13,cursor:"pointer",color:T.muted}}>✏️</span>}</div>
+                }
                 {user.isGuest&&<span style={{fontSize:11,background:"rgba(245,158,11,.15)",color:T.yellow,borderRadius:20,padding:"2px 8px",fontWeight:600}}>👋 Guest</span>}
                 {editing?<div style={{marginTop:7,display:"flex",gap:7}}><Input value={bioInput} onChange={e=>setBioInput(e.target.value)} style={{width:220,padding:"6px 11px",fontSize:13}}/><Btn onClick={saveBio} v="primary" sz="sm">บันทึก</Btn></div>
                 :<div style={{fontSize:13,color:T.sub,marginTop:5,lineHeight:1.6}}>{bio}</div>}
@@ -702,7 +730,15 @@ export default function App(){
     return unsub;
   },[user]);
 
-  function handleLogout(){ls.del("user");setUser(null);}
+  async function handleLogout(){
+    // ปิดห้องที่ตัวเองเป็น host
+    try {
+      const snap = await import("firebase/firestore").then(m=>m.getDocs(m.query(m.collection(db,"voiceRooms"))));
+      const myRooms = snap.docs.filter(d=>d.data().hostInit===user.init);
+      for(const r of myRooms){ await import("firebase/firestore").then(m=>m.deleteDoc(m.doc(db,"voiceRooms",r.id))); }
+    } catch(e){}
+    ls.del("user"); setUser(null);
+  }
 
   if(!user)return<AuthPage onLogin={setUser}/>;
 
@@ -725,7 +761,7 @@ export default function App(){
           {page==="feed"    &&<FeedPage user={user}/>}
           {page==="chat"    &&<ChatPage user={user}/>}
           {page==="voice"   &&<VoiceRoomsPage user={user}/>}
-          {page==="profile" &&<ProfilePage user={user} posts={posts}/>}
+          {page==="profile" &&<ProfilePage user={user} posts={posts} onUpdateName={n=>{const u={...user,name:n};ls.set("user",u);setUser(u);}}/>}
           {page==="privacy" &&<PrivacyPage/>}
         </div>
       </div>
