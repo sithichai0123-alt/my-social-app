@@ -125,14 +125,37 @@ function AuthPage({onLogin}){
 }
 
 // ── YouTube Playlist ──────────────────────────────────────
-// nowPlaying = songId ที่ host กำลังเล่น (เก็บใน Firebase)
-// isHost = เฉพาะ host กดเปิด/ปิดได้
-function YoutubePlaylist({playlist,nowPlaying,onAdd,onRemove,onPlay,isHost}){
+// YoutubePlaylist — Sync เวลาเพลงด้วย startedAt timestamp
+// Host กดเปิด → บันทึก nowPlaying + songStartedAt ใน Firebase
+// คนใหม่เข้ามา → คำนวณว่าเพลงเล่นไปแล้วกี่วินาที → ข้ามไปตรงนั้นเลย
+function YoutubePlaylist({playlist,nowPlaying,songStartedAt,onAdd,onRemove,onPlay,isHost}){
   const [url,setUrl]=useState("");
   const [title,setTitle]=useState("");
   const [err,setErr]=useState("");
+  const [joined,setJoined]=useState(false);
+  const [seekSrc,setSeekSrc]=useState(null);
   const safeList=Array.isArray(playlist)?playlist:[];
   const currentSong=safeList.find(s=>s.id===nowPlaying);
+
+  // Reset joined state เมื่อเพลงเปลี่ยน
+  useEffect(()=>{
+    setJoined(false);
+    setSeekSrc(null);
+  },[nowPlaying]);
+
+  // คำนวณ embed URL พร้อม start time (seconds ที่เพลงเล่นไปแล้ว)
+  function getSeekUrl(songId){
+    if(!songStartedAt)return `https://www.youtube.com/embed/${songId}?autoplay=1&rel=0&modestbranding=1`;
+    const elapsed=Math.floor((Date.now()-songStartedAt)/1000);
+    const start=Math.max(0,elapsed);
+    return `https://www.youtube.com/embed/${songId}?autoplay=1&start=${start}&rel=0&modestbranding=1`;
+  }
+
+  function handleJoin(){
+    // คนใหม่กดเข้าฟัง → สร้าง URL พร้อม start time ณ ขณะนั้น
+    setSeekSrc(getSeekUrl(nowPlaying));
+    setJoined(true);
+  }
 
   function add(){
     try{
@@ -144,10 +167,26 @@ function YoutubePlaylist({playlist,nowPlaying,onAdd,onRemove,onPlay,isHost}){
     }catch{setErr("ลองใหม่อีกครั้ง");}
   }
 
+  // คำนวณเวลาที่ผ่านไปแสดง
+  function elapsed(){
+    if(!songStartedAt)return"";
+    const s=Math.floor((Date.now()-songStartedAt)/1000);
+    const m=Math.floor(s/60);
+    const sec=s%60;
+    return `${m}:${String(sec).padStart(2,"0")}`;
+  }
+
   return(
     <div style={{borderTop:"1px solid "+T.border,paddingTop:14,marginTop:14}}>
-      <div style={{fontSize:13,fontWeight:700,color:T.brand2,marginBottom:12}}>🎵 Playlist <span style={{fontSize:11,fontWeight:400,color:T.muted}}>({safeList.length})</span></div>
+      <div style={{fontSize:13,fontWeight:700,color:T.brand2,marginBottom:12,display:"flex",alignItems:"center",gap:7}}>
+        🎵 Playlist
+        <span style={{fontSize:11,fontWeight:400,color:T.muted}}>({safeList.length})</span>
+        {currentSong&&<span style={{fontSize:11,background:T.green+"33",color:T.green,borderRadius:20,padding:"2px 8px",fontWeight:600,display:"flex",alignItems:"center",gap:4}}>
+          <span style={{width:5,height:5,borderRadius:"50%",background:T.green,display:"inline-block",animation:"pulse 1.5s infinite"}}/>LIVE
+        </span>}
+      </div>
 
+      {/* Add song - Host only */}
       {isHost&&(
         <div style={{background:T.surface,border:"1px dashed "+T.border,borderRadius:14,padding:"12px 14px",marginBottom:12}}>
           <div style={{fontSize:12,color:T.muted,marginBottom:8}}>➕ เพิ่มจาก YouTube URL</div>
@@ -158,45 +197,86 @@ function YoutubePlaylist({playlist,nowPlaying,onAdd,onRemove,onPlay,isHost}){
         </div>
       )}
 
-      {/* Player — แสดงให้ทุกคนในห้องเห็น ตาม nowPlaying ที่ host เลือก */}
+      {/* Now Playing */}
       {currentSong&&(
-        <div style={{marginBottom:12,borderRadius:12,overflow:"hidden",border:"1px solid "+T.borderHi,background:T.surface}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:T.brand+"22"}}>
-            <div style={{fontSize:12,fontWeight:700,color:T.brand2,display:"flex",alignItems:"center",gap:6}}>
-              <div style={{width:6,height:6,borderRadius:"50%",background:T.green,animation:"pulse 1.5s infinite"}}/>
-              กำลังเล่น: {currentSong.title}
+        <div style={{marginBottom:14,borderRadius:14,overflow:"hidden",border:"1px solid "+T.borderHi}}>
+          {/* Header */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:"linear-gradient(90deg,"+T.brand+"44,"+T.brand2+"22)"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <img src={currentSong.thumb} alt="" style={{width:36,height:26,borderRadius:6,objectFit:"cover"}} onError={e=>e.target.style.display="none"}/>
+              <div>
+                <div style={{fontSize:12,fontWeight:700,color:T.brand2,maxWidth:160,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{currentSong.title}</div>
+                <div style={{fontSize:11,color:T.green,display:"flex",alignItems:"center",gap:5}}>
+                  <span style={{width:5,height:5,borderRadius:"50%",background:T.green,display:"inline-block",animation:"pulse 1.5s infinite"}}/>
+                  {isHost?"คุณกำลังเปิดให้ทุกคน":"Host กำลังเปิด"}
+                  {songStartedAt&&<span style={{color:T.muted,marginLeft:4}}>⏱ {elapsed()}</span>}
+                </div>
+              </div>
             </div>
-            {isHost&&<button onClick={()=>onPlay(null)} style={{background:"transparent",border:"none",color:T.red,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>⏹ หยุด</button>}
+            {isHost&&<button onClick={()=>onPlay(null)} style={{background:T.redBg,border:"1px solid rgba(244,63,94,.3)",color:T.red,cursor:"pointer",fontSize:12,padding:"4px 10px",borderRadius:8,fontFamily:"inherit",fontWeight:600}}>⏹ หยุด</button>}
           </div>
-          <iframe
-            key={currentSong.id}
-            src={`https://www.youtube.com/embed/${currentSong.id}?autoplay=1&rel=0`}
-            width="100%" height="200" frameBorder="0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen style={{display:"block"}} title="YouTube player"/>
+
+          {/* Player */}
+          {isHost?(
+            // Host เล่นตั้งแต่ต้น
+            <iframe
+              key={currentSong.id}
+              src={`https://www.youtube.com/embed/${currentSong.id}?autoplay=1&rel=0&modestbranding=1`}
+              width="100%" height="220" frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen style={{display:"block"}} title="YouTube player"/>
+          ):joined&&seekSrc?(
+            // คนอื่น — เล่น sync ณ เวลาที่กด (ข้ามไปตรงที่เพลงเล่นอยู่)
+            <iframe
+              key={seekSrc}
+              src={seekSrc}
+              width="100%" height="220" frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen style={{display:"block"}} title="YouTube player"/>
+          ):(
+            // คนใหม่ — แสดง banner พร้อมบอกว่าเพลงเล่นไปแล้วกี่นาที
+            <div style={{padding:"24px 16px",textAlign:"center",background:T.surface}}>
+              <div style={{fontSize:28,marginBottom:10}}>🎵</div>
+              <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4}}>กำลังเล่นเพลงในห้องนี้</div>
+              <div style={{fontSize:12,color:T.sub,marginBottom:4}}>{currentSong.title}</div>
+              {songStartedAt&&(
+                <div style={{fontSize:12,color:T.muted,marginBottom:14,background:T.card,borderRadius:8,padding:"4px 10px",display:"inline-block"}}>
+                  ⏱ เพลงเล่นไปแล้ว {elapsed()} — กดเพื่อ sync ไปตรงนั้น
+                </div>
+              )}
+              <div style={{marginTop:4}}>
+                <Btn onClick={handleJoin} v="primary" sz="md">▶ เข้าฟัง (sync เวลา)</Btn>
+              </div>
+              <div style={{fontSize:11,color:T.muted,marginTop:8}}>เพลงจะเริ่มตรงที่กำลังเล่นอยู่ทันที</div>
+            </div>
+          )}
         </div>
       )}
 
-      {safeList.length===0&&<div style={{textAlign:"center",padding:"14px 0",color:T.muted,fontSize:13}}>{isHost?"วาง YouTube URL ด้านบนเพื่อเพิ่มเพลง 🎵":"Host ยังไม่ได้เพิ่มเพลง"}</div>}
+      {safeList.length===0&&(
+        <div style={{textAlign:"center",padding:"16px 0",color:T.muted,fontSize:13}}>
+          {isHost?"วาง YouTube URL ด้านบนเพื่อเพิ่มเพลง 🎵":"Host ยังไม่ได้เพิ่มเพลง"}
+        </div>
+      )}
 
+      {/* Playlist items */}
       <div style={{display:"flex",flexDirection:"column",gap:7}}>
         {safeList.map((s,i)=>{
           const isPlaying=nowPlaying===s.id;
           return(
-            <div key={s.id} style={{display:"flex",gap:10,alignItems:"center",padding:"9px 12px",borderRadius:12,background:isPlaying?T.brand+"22":T.surface,border:"1px solid "+(isPlaying?T.borderHi:T.border),transition:"all .18s"}}>
-              <span style={{fontSize:13,fontWeight:700,color:T.muted,width:18,textAlign:"center",flexShrink:0}}>{i+1}</span>
+            <div key={s.id} style={{display:"flex",gap:10,alignItems:"center",padding:"9px 12px",borderRadius:12,
+              background:isPlaying?T.brand+"22":T.surface,
+              border:"1px solid "+(isPlaying?T.borderHi:T.border),transition:"all .18s"}}>
+              <span style={{fontSize:13,fontWeight:700,color:isPlaying?T.brand2:T.muted,width:18,textAlign:"center",flexShrink:0}}>{isPlaying?"▶":i+1}</span>
               <img src={s.thumb} alt="" style={{width:48,height:34,borderRadius:8,objectFit:"cover",flexShrink:0,border:"1px solid "+T.border}} onError={e=>e.target.style.display="none"}/>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:13,fontWeight:600,color:isPlaying?T.brand2:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.title}</div>
-                <div style={{fontSize:11,color:T.muted,marginTop:2}}>{isPlaying?"🎵 กำลังเล่น...":(isHost?"กด ▶ เพื่อเปิดสำหรับทุกคน":"รอ Host เปิด")}</div>
+                <div style={{fontSize:11,color:isPlaying?T.green:T.muted,marginTop:2}}>
+                  {isPlaying?"🎵 กำลังเล่น — sync เวลา":(isHost?"กด ▶ เพื่อเปิดให้ทุกคน":"—")}
+                </div>
               </div>
               <div style={{display:"flex",gap:6}}>
-                {isHost&&(
-                  <button onClick={()=>onPlay(isPlaying?null:s.id)}
-                    style={{border:"none",background:"transparent",color:isPlaying?T.red:T.brand2,cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>
-                    {isPlaying?"⏹":"▶"}
-                  </button>
-                )}
+                {isHost&&<button onClick={()=>onPlay(isPlaying?null:s.id)} style={{border:"none",background:"transparent",color:isPlaying?T.red:T.brand2,cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>{isPlaying?"⏹":"▶"}</button>}
                 {isHost&&<button onClick={()=>onRemove(s.id)} style={{border:"none",background:"transparent",color:T.muted,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>✕</button>}
               </div>
             </div>
@@ -279,8 +359,12 @@ function VoiceRoomsPage({user}){
 
   async function playSong(songId){
     if(!inRoom||!isHost)return;
-    // เก็บ nowPlaying ใน Firebase → ทุกคนในห้องเห็นพร้อมกัน realtime
-    await updateDoc(doc(db,"voiceRooms",inRoomId),{nowPlaying:songId||null});
+    // เก็บ nowPlaying + startedAt ใน Firebase
+    // startedAt ใช้คำนวณว่าเพลงไปถึงนาทีที่เท่าไหร่แล้ว
+    await updateDoc(doc(db,"voiceRooms",inRoomId),{
+      nowPlaying: songId||null,
+      songStartedAt: songId ? Date.now() : null,
+    });
   }
 
   return(
@@ -323,7 +407,7 @@ function VoiceRoomsPage({user}){
               })}
             </div>
           </div>
-          {showPL&&<div style={{padding:"0 16px 16px"}}><YoutubePlaylist playlist={inRoom.playlist} nowPlaying={inRoom.nowPlaying||null} onAdd={addSong} onRemove={removeSong} onPlay={playSong} isHost={isHost}/></div>}
+          {showPL&&<div style={{padding:"0 16px 16px"}}><YoutubePlaylist playlist={inRoom.playlist} nowPlaying={inRoom.nowPlaying||null} songStartedAt={inRoom.songStartedAt||null} onAdd={addSong} onRemove={removeSong} onPlay={playSong} isHost={isHost}/></div>}
         </Card>
       )}
 
