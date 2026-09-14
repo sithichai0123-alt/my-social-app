@@ -89,11 +89,18 @@ function ImgGrid({images}){
 function AuthPage({onLogin}){
   const [name,setName]=useState("");
   const [err,setErr]=useState("");
-  function loginGoogle(){const u={name:"สิทธิชัย",email:"sittichai@gmail.com",avatar:"",isGuest:false,init:"สต"};ls.set("user",u);onLogin(u);}
+  function loginGoogle(){
+    // ดึงชื่อที่เคยแก้ไว้จาก localStorage ถ้ามี
+    const savedName = ls.get("displayName","สิทธิชัย");
+    const savedInit = savedName.slice(0,2).toUpperCase();
+    const u={name:savedName,email:"sittichai@gmail.com",avatar:"",isGuest:false,init:savedInit};
+    ls.set("user",u);
+    onLogin(u);
+  }
   function loginGuest(){if(!name.trim()){setErr("ใส่ชื่อก่อนนะ");return;}const init=name.trim().slice(0,2).toUpperCase();const u={name:name.trim(),email:"",avatar:"",isGuest:true,init};ls.set("user",u);onLogin(u);}
   return(
     <div style={{minHeight:"100vh",background:T.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
-      <style>{`@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}`}</style>
+      <style>{`@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}} @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}`}</style>
       <div style={{textAlign:"center",marginBottom:36}}>
         <div style={{width:72,height:72,borderRadius:22,background:T.brandGrad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:36,margin:"0 auto 16px",boxShadow:"0 8px 32px rgba(124,92,252,.5)",animation:"float 3s ease-in-out infinite"}}>💜</div>
         <div style={{fontSize:36,fontWeight:800,color:T.text,letterSpacing:-1}}>Warmly</div>
@@ -118,12 +125,14 @@ function AuthPage({onLogin}){
 }
 
 // ── YouTube Playlist ──────────────────────────────────────
-function YoutubePlaylist({playlist,onAdd,onRemove,isHost}){
+// nowPlaying = songId ที่ host กำลังเล่น (เก็บใน Firebase)
+// isHost = เฉพาะ host กดเปิด/ปิดได้
+function YoutubePlaylist({playlist,nowPlaying,onAdd,onRemove,onPlay,isHost}){
   const [url,setUrl]=useState("");
   const [title,setTitle]=useState("");
   const [err,setErr]=useState("");
-  const [playing,setPlaying]=useState(null);
   const safeList=Array.isArray(playlist)?playlist:[];
+  const currentSong=safeList.find(s=>s.id===nowPlaying);
 
   function add(){
     try{
@@ -138,6 +147,7 @@ function YoutubePlaylist({playlist,onAdd,onRemove,isHost}){
   return(
     <div style={{borderTop:"1px solid "+T.border,paddingTop:14,marginTop:14}}>
       <div style={{fontSize:13,fontWeight:700,color:T.brand2,marginBottom:12}}>🎵 Playlist <span style={{fontSize:11,fontWeight:400,color:T.muted}}>({safeList.length})</span></div>
+
       {isHost&&(
         <div style={{background:T.surface,border:"1px dashed "+T.border,borderRadius:14,padding:"12px 14px",marginBottom:12}}>
           <div style={{fontSize:12,color:T.muted,marginBottom:8}}>➕ เพิ่มจาก YouTube URL</div>
@@ -147,30 +157,51 @@ function YoutubePlaylist({playlist,onAdd,onRemove,isHost}){
           <Btn onClick={add} v="primary" sz="sm">เพิ่มเพลง</Btn>
         </div>
       )}
-      {playing&&(
-        <div style={{marginBottom:12,borderRadius:12,overflow:"hidden",border:"1px solid "+T.border}}>
-          <div style={{display:"flex",justifyContent:"flex-end",padding:"6px 10px",background:T.surface}}>
-            <button onClick={()=>setPlaying(null)} style={{background:"transparent",border:"none",color:T.muted,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>✕ ปิด</button>
+
+      {/* Player — แสดงให้ทุกคนในห้องเห็น ตาม nowPlaying ที่ host เลือก */}
+      {currentSong&&(
+        <div style={{marginBottom:12,borderRadius:12,overflow:"hidden",border:"1px solid "+T.borderHi,background:T.surface}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:T.brand+"22"}}>
+            <div style={{fontSize:12,fontWeight:700,color:T.brand2,display:"flex",alignItems:"center",gap:6}}>
+              <div style={{width:6,height:6,borderRadius:"50%",background:T.green,animation:"pulse 1.5s infinite"}}/>
+              กำลังเล่น: {currentSong.title}
+            </div>
+            {isHost&&<button onClick={()=>onPlay(null)} style={{background:"transparent",border:"none",color:T.red,cursor:"pointer",fontSize:12,fontFamily:"inherit"}}>⏹ หยุด</button>}
           </div>
-          <iframe src={ytEmbed(playing)} width="100%" height="200" frameBorder="0" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{display:"block"}} title="YouTube player"/>
+          <iframe
+            key={currentSong.id}
+            src={`https://www.youtube.com/embed/${currentSong.id}?autoplay=1&rel=0`}
+            width="100%" height="200" frameBorder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen style={{display:"block"}} title="YouTube player"/>
         </div>
       )}
+
       {safeList.length===0&&<div style={{textAlign:"center",padding:"14px 0",color:T.muted,fontSize:13}}>{isHost?"วาง YouTube URL ด้านบนเพื่อเพิ่มเพลง 🎵":"Host ยังไม่ได้เพิ่มเพลง"}</div>}
+
       <div style={{display:"flex",flexDirection:"column",gap:7}}>
-        {safeList.map((s,i)=>(
-          <div key={s.id} style={{display:"flex",gap:10,alignItems:"center",padding:"9px 12px",borderRadius:12,background:playing===s.id?T.brand+"22":T.surface,border:"1px solid "+(playing===s.id?T.borderHi:T.border),cursor:"pointer",transition:"all .18s"}}>
-            <span style={{fontSize:13,fontWeight:700,color:T.muted,width:18,textAlign:"center",flexShrink:0}}>{i+1}</span>
-            <img src={s.thumb} alt="" style={{width:48,height:34,borderRadius:8,objectFit:"cover",flexShrink:0,border:"1px solid "+T.border}} onError={e=>e.target.style.display="none"}/>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.title}</div>
-              <div style={{fontSize:11,color:T.muted,marginTop:2}}>กดเพื่อเปิดดู</div>
+        {safeList.map((s,i)=>{
+          const isPlaying=nowPlaying===s.id;
+          return(
+            <div key={s.id} style={{display:"flex",gap:10,alignItems:"center",padding:"9px 12px",borderRadius:12,background:isPlaying?T.brand+"22":T.surface,border:"1px solid "+(isPlaying?T.borderHi:T.border),transition:"all .18s"}}>
+              <span style={{fontSize:13,fontWeight:700,color:T.muted,width:18,textAlign:"center",flexShrink:0}}>{i+1}</span>
+              <img src={s.thumb} alt="" style={{width:48,height:34,borderRadius:8,objectFit:"cover",flexShrink:0,border:"1px solid "+T.border}} onError={e=>e.target.style.display="none"}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:600,color:isPlaying?T.brand2:T.text,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{s.title}</div>
+                <div style={{fontSize:11,color:T.muted,marginTop:2}}>{isPlaying?"🎵 กำลังเล่น...":(isHost?"กด ▶ เพื่อเปิดสำหรับทุกคน":"รอ Host เปิด")}</div>
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                {isHost&&(
+                  <button onClick={()=>onPlay(isPlaying?null:s.id)}
+                    style={{border:"none",background:"transparent",color:isPlaying?T.red:T.brand2,cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>
+                    {isPlaying?"⏹":"▶"}
+                  </button>
+                )}
+                {isHost&&<button onClick={()=>onRemove(s.id)} style={{border:"none",background:"transparent",color:T.muted,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>✕</button>}
+              </div>
             </div>
-            <div style={{display:"flex",gap:6}}>
-              <button onClick={()=>setPlaying(p=>p===s.id?null:s.id)} style={{border:"none",background:"transparent",color:playing===s.id?T.brand2:T.muted,cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>{playing===s.id?"⏸":"▶"}</button>
-              {isHost&&<button onClick={()=>onRemove(s.id)} style={{border:"none",background:"transparent",color:T.muted,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>✕</button>}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -242,7 +273,14 @@ function VoiceRoomsPage({user}){
   async function removeSong(songId){
     if(!inRoom)return;
     const playlist=(Array.isArray(inRoom.playlist)?inRoom.playlist:[]).filter(s=>s.id!==songId);
-    await updateDoc(doc(db,"voiceRooms",inRoomId),{playlist});
+    const nowPlaying=inRoom.nowPlaying===songId?null:inRoom.nowPlaying;
+    await updateDoc(doc(db,"voiceRooms",inRoomId),{playlist,nowPlaying});
+  }
+
+  async function playSong(songId){
+    if(!inRoom||!isHost)return;
+    // เก็บ nowPlaying ใน Firebase → ทุกคนในห้องเห็นพร้อมกัน realtime
+    await updateDoc(doc(db,"voiceRooms",inRoomId),{nowPlaying:songId||null});
   }
 
   return(
@@ -285,7 +323,7 @@ function VoiceRoomsPage({user}){
               })}
             </div>
           </div>
-          {showPL&&<div style={{padding:"0 16px 16px"}}><YoutubePlaylist playlist={inRoom.playlist} onAdd={addSong} onRemove={removeSong} isHost={isHost}/></div>}
+          {showPL&&<div style={{padding:"0 16px 16px"}}><YoutubePlaylist playlist={inRoom.playlist} nowPlaying={inRoom.nowPlaying||null} onAdd={addSong} onRemove={removeSong} onPlay={playSong} isHost={isHost}/></div>}
         </Card>
       )}
 
@@ -445,8 +483,10 @@ function NewPostBox({user}){
     if(!text.trim()&&!images.length){setErr("เขียนหรือเพิ่มรูปก่อนนะ");return;}
     setPosting(true);
     try{
+      const postName = !user.isGuest ? (ls.get("displayName",user.name)||user.name) : user.name;
+      const postInit = postName.slice(0,2).toUpperCase();
       await addDoc(collection(db,"posts"),{
-        author:user.name, authorInit:user.init,
+        author:postName, authorInit:postInit,
         content:text.trim(), mood, privacy,
         images:images.map(i=>i.src),
         likes:0, liked:false, comments:[],
@@ -616,7 +656,17 @@ function ProfilePage({user,posts,onUpdateName}){
   const [displayName,setDisplayName]=useState(()=>ls.get("displayName",user.name));
   const [editName,setEditName]=useState(false);
   const [nameInput,setNameInput]=useState(displayName);
-  const saveName=()=>{setDisplayName(nameInput);ls.set("displayName",nameInput);onUpdateName&&onUpdateName(nameInput);setEditName(false);};
+  const saveName=()=>{
+    const n=nameInput.trim();
+    if(!n)return;
+    setDisplayName(n);
+    ls.set("displayName",n);
+    // อัปเดต user object ใน localStorage ด้วย
+    const saved=ls.get("user",{});
+    ls.set("user",{...saved,name:n,init:n.slice(0,2).toUpperCase()});
+    onUpdateName&&onUpdateName(n);
+    setEditName(false);
+  };
   const [showMP,setShowMP]=useState(false);
   const [coverImg,setCoverImg]=useState(()=>ls.get("coverImg",""));
   const [avatarImg,setAvatarImg]=useState(()=>ls.get("avatarImg",""));
@@ -761,7 +811,7 @@ export default function App(){
           {page==="feed"    &&<FeedPage user={user}/>}
           {page==="chat"    &&<ChatPage user={user}/>}
           {page==="voice"   &&<VoiceRoomsPage user={user}/>}
-          {page==="profile" &&<ProfilePage user={user} posts={posts} onUpdateName={n=>{const u={...user,name:n};ls.set("user",u);setUser(u);}}/>}
+          {page==="profile" &&<ProfilePage user={user} posts={posts} onUpdateName={n=>{const u={...user,name:n,init:n.slice(0,2).toUpperCase()};ls.set("user",u);setUser(u);}}/>}
           {page==="privacy" &&<PrivacyPage/>}
         </div>
       </div>
