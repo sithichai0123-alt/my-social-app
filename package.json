@@ -1,16 +1,15 @@
 {
   "name": "my-social-app",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "private": true,
   "dependencies": {
-  "react": "^18.2.0",
-  "react-dom": "^18.2.0",
-  "react-scripts": "5.0.1",
-  "firebase": "^10.0.0",
-  "livekit-client": "^2.0.0",
-  "livekit-server-sdk": "^2.0.0",
-  "@livekit/components-react": "^2.0.0"
-},
+    "firebase": "^10.0.0",
+    "livekit-client": "^2.0.0",
+    "livekit-server-sdk": "^2.7.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1"
+  },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
