@@ -1,6 +1,8 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, onSnapshot, orderBy, query, doc, updateDoc, increment, serverTimestamp, deleteDoc } from "firebase/firestore";
+import { Room, RoomEvent, Track, createLocalAudioTrack } from "livekit-client";
+import { Room, RoomEvent, Track, createLocalAudioTrack } from "livekit-client";
 
 // ── Firebase Config ──────────────────────────────────────
 const firebaseConfig = {
@@ -51,9 +53,14 @@ function ytEmbed(id){return`https://www.youtube.com/embed/${id}?autoplay=0&rel=0
 function timeAgo(ts){if(!ts)return"เมื่อกี้";const s=Math.floor((Date.now()-ts.toMillis())/1000);if(s<60)return"เมื่อกี้";if(s<3600)return Math.floor(s/60)+" นาทีที่แล้ว";if(s<86400)return Math.floor(s/3600)+" ชม.";return Math.floor(s/86400)+" วันที่แล้ว";}
 
 // ── Shared UI ─────────────────────────────────────────────
-function Av({init,bg,tc,size=40,online,grad}){
+function Av({init,bg,tc,size=40,online,grad,isSelf}){
+  // ถ้าเป็น avatar ของตัวเอง (isSelf) ให้ดึงรูปจาก localStorage
+  const selfImg = isSelf ? ls.get("avatarImg","") : "";
   return(<div style={{position:"relative",flexShrink:0}}>
-    <div style={{width:size,height:size,borderRadius:"50%",background:grad?T.brandGrad:(bg||T.card),color:grad?"#fff":(tc||T.brand2),display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.32,fontWeight:700,boxShadow:grad?"0 0 16px rgba(124,92,252,.5)":"none"}}>{init}</div>
+    {selfImg
+      ? <img src={selfImg} alt={init} style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",display:"block",border:"2px solid "+(grad?T.brand:T.border)}}/>
+      : <div style={{width:size,height:size,borderRadius:"50%",background:grad?T.brandGrad:(bg||T.card),color:grad?"#fff":(tc||T.brand2),display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.32,fontWeight:700,boxShadow:grad?"0 0 16px rgba(124,92,252,.5)":"none"}}>{init}</div>
+    }
     {online&&<div style={{position:"absolute",bottom:1,right:1,width:Math.max(8,size*.2),height:Math.max(8,size*.2),borderRadius:"50%",background:T.green,border:"2px solid "+T.bg}}/>}
   </div>);
 }
@@ -72,16 +79,22 @@ function Input({value,onChange,placeholder,type="text",onKeyDown,style={}}){
     onFocus={e=>e.target.style.borderColor=T.borderHi} onBlur={e=>e.target.style.borderColor=T.border}/>);
 }
 
-function ImgGrid({images}){
+function ImgGrid({images,mediaTypes}){
   if(!images?.length)return null;
   const n=images.length;
-  return(<div style={{display:"grid",gap:2,margin:"10px 0",borderRadius:14,overflow:"hidden",gridTemplateColumns:n===1?"1fr":"1fr 1fr",maxHeight:n===1?340:240}}>
-    {images.slice(0,4).map((src,i)=>(
-      <div key={i} style={{overflow:"hidden",position:"relative",gridColumn:n===3&&i===0?"1/3":undefined}}>
-        <img src={src} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block",minHeight:120}} onError={e=>e.target.style.display="none"}/>
-        {i===3&&n>4&&<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:22,fontWeight:700}}>+{n-4}</div>}
-      </div>
-    ))}
+  return(<div style={{display:"grid",gap:2,margin:"10px 0",borderRadius:14,overflow:"hidden",gridTemplateColumns:n===1?"1fr":"1fr 1fr",maxHeight:n===1?380:260}}>
+    {images.slice(0,4).map((src,i)=>{
+      const isVid=mediaTypes?.[i]==="video"||src?.startsWith("data:video");
+      return(
+        <div key={i} style={{overflow:"hidden",position:"relative",gridColumn:n===3&&i===0?"1/3":undefined,background:"#000",minHeight:130}}>
+          {isVid
+            ? <video src={src} controls style={{width:"100%",height:"100%",objectFit:"cover",display:"block",minHeight:130}} preload="metadata"/>
+            : <img src={src} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block",minHeight:130}} onError={e=>e.target.style.display="none"}/>
+          }
+          {i===3&&n>4&&<div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.6)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:22,fontWeight:700}}>+{n-4}</div>}
+        </div>
+      );
+    })}
   </div>);
 }
 
@@ -100,7 +113,7 @@ function AuthPage({onLogin}){
   function loginGuest(){if(!name.trim()){setErr("ใส่ชื่อก่อนนะ");return;}const init=name.trim().slice(0,2).toUpperCase();const u={name:name.trim(),email:"",avatar:"",isGuest:true,init};ls.set("user",u);onLogin(u);}
   return(
     <div style={{minHeight:"100vh",background:T.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
-      <style>{`@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}} @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}`}</style>
+      <style>{`@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}} @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}} @keyframes mic-wave{0%{height:3px}100%{height:14px}}`}</style>
       <div style={{textAlign:"center",marginBottom:36}}>
         <div style={{width:72,height:72,borderRadius:22,background:T.brandGrad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:36,margin:"0 auto 16px",boxShadow:"0 8px 32px rgba(124,92,252,.5)",animation:"float 3s ease-in-out infinite"}}>💜</div>
         <div style={{fontSize:36,fontWeight:800,color:T.text,letterSpacing:-1}}>Warmly</div>
@@ -287,16 +300,176 @@ function YoutubePlaylist({playlist,nowPlaying,songStartedAt,onAdd,onRemove,onPla
   );
 }
 
-// ── Voice Rooms (Firebase) ────────────────────────────────
+// ── Room Chat (text chat ในห้องเสียง) ────────────────────
+function RoomChat({roomId,user}){
+  const [msgs,setMsgs]=useState([]);
+  const [input,setInput]=useState("");
+  const endRef=useRef();
+  useEffect(()=>{
+    const q=query(collection(db,"voiceRooms",roomId,"chat"),orderBy("t","asc"));
+    const unsub=onSnapshot(q,snap=>setMsgs(snap.docs.map(d=>({id:d.id,...d.data()}))));
+    return unsub;
+  },[roomId]);
+  useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth"});},[msgs]);
+
+  async function send(){
+    const txt=input.trim();if(!txt)return;
+    setInput("");
+    await addDoc(collection(db,"voiceRooms",roomId,"chat"),{
+      author:user.name,init:user.init,text:txt,t:serverTimestamp()
+    });
+  }
+
+  return(
+    <div style={{borderTop:"1px solid "+T.border,marginTop:12}}>
+      <div style={{fontSize:12,fontWeight:700,color:T.sub,padding:"10px 0 8px",display:"flex",alignItems:"center",gap:6}}>
+        💬 แชทในห้อง <span style={{fontSize:11,fontWeight:400,color:T.muted}}>(สำหรับคนที่ไม่อยากพูดเสียง)</span>
+      </div>
+      <div style={{maxHeight:160,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,marginBottom:8}}>
+        {msgs.map(m=>(
+          <div key={m.id} style={{display:"flex",gap:7,alignItems:"flex-start"}}>
+            <div style={{width:24,height:24,borderRadius:"50%",background:T.brand+"44",color:T.brand2,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{m.init?.slice(0,2)||"??"}</div>
+            <div>
+              <span style={{fontSize:11,fontWeight:700,color:T.brand2,marginRight:5}}>{m.author}</span>
+              <span style={{fontSize:13,color:T.text}}>{m.text}</span>
+            </div>
+          </div>
+        ))}
+        {msgs.length===0&&<div style={{fontSize:12,color:T.muted,textAlign:"center",padding:"10px 0"}}>ยังไม่มีข้อความ — พิมพ์คุยได้เลย</div>}
+        <div ref={endRef}/>
+      </div>
+      <div style={{display:"flex",gap:7}}>
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="พิมพ์ข้อความ..."
+          style={{flex:1,background:T.surface,border:"1px solid "+T.border,borderRadius:20,padding:"7px 12px",fontSize:13,outline:"none",color:T.text,fontFamily:"inherit"}}
+          onFocus={e=>e.target.style.borderColor=T.borderHi} onBlur={e=>e.target.style.borderColor=T.border}/>
+        <button onClick={send} style={{width:34,height:34,borderRadius:"50%",background:T.brandGrad,border:"none",color:"#fff",cursor:"pointer",fontSize:15,fontFamily:"inherit"}}>↑</button>
+      </div>
+    </div>
+  );
+}
+
+// ── LiveKit Voice Hook ───────────────────────────────────
+function useVoiceRoom(roomName, userName, enabled){
+  const [room] = useState(()=>new Room());
+  const [connected,setConnected]=useState(false);
+  const [speakers,setSpeakers]=useState([]); // init ที่กำลังพูด
+  const [micOn,setMicOn]=useState(true);
+  const [error,setError]=useState("");
+
+  useEffect(()=>{
+    if(!enabled||!roomName||!userName)return;
+    let cancelled=false;
+    async function connect(){
+      try{
+        // ขอ token จาก api/token.js
+        const res=await fetch(`/api/token?room=${encodeURIComponent(roomName)}&username=${encodeURIComponent(userName)}`);
+        const {token,url}=await res.json();
+        if(cancelled)return;
+        await room.connect(url,token,{audio:true,video:false});
+        setConnected(true);
+        // publish ไมค์
+        const track=await createLocalAudioTrack();
+        await room.localParticipant.publishTrack(track);
+        // ติดตามว่าใครกำลังพูด
+        room.on(RoomEvent.ActiveSpeakersChanged,speakers=>{
+          setSpeakers(speakers.map(s=>s.identity));
+        });
+      }catch(e){
+        if(!cancelled)setError("เชื่อมต่อไม่ได้: "+e.message);
+      }
+    }
+    connect();
+    return ()=>{
+      cancelled=true;
+      room.disconnect();
+      setConnected(false);
+      setSpeakers([]);
+    };
+  },[enabled,roomName,userName]);
+
+  async function toggleMic(){
+    const next=!micOn;
+    setMicOn(next);
+    if(next){await room.localParticipant.setMicrophoneEnabled(true);}
+    else{await room.localParticipant.setMicrophoneEnabled(false);}
+  }
+
+  return{connected,speakers,micOn,toggleMic,error};
+}
+
+// ── LiveKit Voice Hook ───────────────────────────────────
+function useVoiceRoom(roomName, userName, enabled){
+  const roomRef = useRef(null);
+  const [connected,setConnected]=useState(false);
+  const [speaking,setSpeaking]=useState({});
+  const [micOn,setMicOn]=useState(true);
+  const [error,setError]=useState("");
+
+  useEffect(()=>{
+    if(!enabled||!roomName||!userName)return;
+    const room = new Room({audioCaptureDefaults:{echoCancellation:true,noiseSuppression:true}});
+    roomRef.current = room;
+
+    async function connect(){
+      try{
+        const res = await fetch(`/api/token?room=${encodeURIComponent(roomName)}&username=${encodeURIComponent(userName)}`);
+        if(!res.ok) throw new Error("Token error");
+        const {token,url} = await res.json();
+        await room.connect(url,token);
+        const track = await createLocalAudioTrack({echoCancellation:true,noiseSuppression:true});
+        await room.localParticipant.publishTrack(track);
+        setConnected(true);setError("");
+      }catch(e){setError("เชื่อมต่อเสียงไม่สำเร็จ");}
+    }
+
+    room.on(RoomEvent.ActiveSpeakersChanged,()=>{
+      const sp={};
+      room.activeSpeakers.forEach(p=>{sp[p.identity]=true;});
+      setSpeaking({...sp});
+    });
+    room.on(RoomEvent.TrackSubscribed,(track)=>{
+      if(track.kind===Track.Kind.Audio){const el=track.attach();el.style.display="none";document.body.appendChild(el);}
+    });
+    room.on(RoomEvent.TrackUnsubscribed,(track)=>{track.detach().forEach(el=>el.remove());});
+
+    connect();
+    return()=>{room.disconnect();roomRef.current=null;setConnected(false);setSpeaking({});};
+  },[enabled,roomName,userName]);
+
+  async function toggleMic(){
+    const room=roomRef.current;
+    if(!room?.localParticipant)return;
+    const next=!micOn;
+    await room.localParticipant.setMicrophoneEnabled(next);
+    setMicOn(next);
+  }
+
+  function isSpeaking(identity){ return !!speaking[identity]; }
+
+  return{connected,micOn,toggleMic,isSpeaking,error};
+}
+
+// ── Voice Rooms (Firebase + LiveKit) ─────────────────────
 function VoiceRoomsPage({user}){
   const [rooms,setRooms]=useState([]);
   const [inRoomId,setInRoomId]=useState(null);
-  const [myMic,setMyMic]=useState(true);
+  const [inRoomName,setInRoomName]=useState("");
   const [showPL,setShowPL]=useState(false);
+  const [showChat,setShowChat]=useState(false);
+  const {connected,micOn,toggleMic,isSpeaking,error:voiceError}=useVoiceRoom(inRoomName,user.name,!!inRoomId);
   const [newName,setNewName]=useState("");
   const [creating,setCreating]=useState(false);
   const [nameErr,setNameErr]=useState("");
   const [loading,setLoading]=useState(true);
+
+  const inRoom=rooms.find(r=>r.id===inRoomId);
+  const isHost=inRoom&&inRoom.hostInit===user.init;
+  const roomName=inRoom?`warmly-${inRoomId}`:"";
+
+  // LiveKit voice hook
+  const {connected,speakers,micOn,toggleMic,error}=useVoiceRoom(
+    roomName, user.name, !!inRoomId && !user.isGuest
+  );
 
   useEffect(()=>{
     const q=query(collection(db,"voiceRooms"),orderBy("createdAt","desc"));
@@ -307,15 +480,14 @@ function VoiceRoomsPage({user}){
     return unsub;
   },[]);
 
-  const inRoom=rooms.find(r=>r.id===inRoomId);
-  const isHost=inRoom&&inRoom.hostInit===user.init;
-
   async function join(r){
     const members=Array.isArray(r.members)?r.members:[];
     if(!members.find(m=>m.init===user.init)){
-      await updateDoc(doc(db,"voiceRooms",r.id),{members:[...members,{init:user.init,name:user.name,mic:true}]});
+      await updateDoc(doc(db,"voiceRooms",r.id),{
+        members:[...members,{init:user.init,name:user.name,mic:true}]
+      });
     }
-    setInRoomId(r.id);setMyMic(true);setShowPL(false);
+    setInRoomId(r.id);setShowPL(false);setShowChat(false);
   }
 
   async function leave(){
@@ -323,7 +495,7 @@ function VoiceRoomsPage({user}){
     const members=(Array.isArray(inRoom.members)?inRoom.members:[]).filter(m=>m.init!==user.init);
     if(members.length===0){await deleteDoc(doc(db,"voiceRooms",inRoomId));}
     else{await updateDoc(doc(db,"voiceRooms",inRoomId),{members});}
-    setInRoomId(null);setShowPL(false);
+    setInRoomId(null);setInRoomName("");setShowPL(false);setShowChat(false);
   }
 
   async function hostToggleMic(init){
@@ -340,8 +512,13 @@ function VoiceRoomsPage({user}){
 
   async function create(){
     if(!newName.trim()){setNameErr("ใส่ชื่อห้องก่อนนะ");return;}
-    const ref=await addDoc(collection(db,"voiceRooms"),{name:newName.trim(),vibe:"🎵",hostInit:user.init,hostName:user.name,members:[{init:user.init,name:user.name,mic:true}],playlist:[],createdAt:serverTimestamp()});
-    setInRoomId(ref.id);setMyMic(true);setNewName("");setCreating(false);setNameErr("");
+    const r=await addDoc(collection(db,"voiceRooms"),{
+      name:newName.trim(),vibe:"🎵",hostInit:user.init,hostName:user.name,
+      members:[{init:user.init,name:user.name,mic:true}],
+      playlist:[],nowPlaying:null,songStartedAt:null,
+      createdAt:serverTimestamp()
+    });
+    setInRoomId(r.id);setMyMic(true);setNewName("");setCreating(false);setNameErr("");
   }
 
   async function addSong(song){
@@ -354,18 +531,18 @@ function VoiceRoomsPage({user}){
     if(!inRoom)return;
     const playlist=(Array.isArray(inRoom.playlist)?inRoom.playlist:[]).filter(s=>s.id!==songId);
     const nowPlaying=inRoom.nowPlaying===songId?null:inRoom.nowPlaying;
-    await updateDoc(doc(db,"voiceRooms",inRoomId),{playlist,nowPlaying});
+    const songStartedAt=inRoom.nowPlaying===songId?null:inRoom.songStartedAt;
+    await updateDoc(doc(db,"voiceRooms",inRoomId),{playlist,nowPlaying,songStartedAt});
   }
 
-  async function playSong(songId){
+  async function playSong(songId,startedAtMs){
     if(!inRoom||!isHost)return;
-    // เก็บ nowPlaying + startedAt ใน Firebase
-    // startedAt ใช้คำนวณว่าเพลงไปถึงนาทีที่เท่าไหร่แล้ว
     await updateDoc(doc(db,"voiceRooms",inRoomId),{
-      nowPlaying: songId||null,
-      songStartedAt: songId ? Date.now() : null,
+      nowPlaying:songId||null,
+      songStartedAt:startedAtMs||null
     });
   }
+
 
   return(
     <div>
@@ -375,20 +552,30 @@ function VoiceRoomsPage({user}){
             <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:14,gap:10}}>
               <div>
                 <div style={{fontSize:15,fontWeight:700,color:T.text,display:"flex",alignItems:"center",gap:8}}>
-                  <div style={{width:8,height:8,borderRadius:"50%",background:T.green,boxShadow:"0 0 8px "+T.green}}/>{inRoom.vibe} {inRoom.name}
+                  <div style={{width:8,height:8,borderRadius:"50%",background:connected?T.green:T.yellow,boxShadow:"0 0 8px "+(connected?T.green:T.yellow)}}/>
+                  {inRoom.vibe} {inRoom.name}
                 </div>
-                <div style={{fontSize:12,color:T.muted,marginTop:3}}>{isHost?"👑 คุณเป็น Host":"กำลังคุยอยู่"} • {(inRoom.members||[]).length} คน</div>
+                <div style={{fontSize:12,color:T.muted,marginTop:3}}>
+                  {user.isGuest?"👀 ดูอย่างเดียว (Guest)":connected?"🎙️ เชื่อมต่อเสียงแล้ว":"⏳ กำลังเชื่อมต่อ..."}
+                  {" • "}{(inRoom.members||[]).length} คน
+                </div>
+                {error&&<div style={{fontSize:11,color:T.red,marginTop:3}}>{error}</div>}
               </div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                <Btn onClick={()=>setShowPL(!showPL)} v={showPL?"primary":"ghost"} sz="sm">🎵</Btn>
-                <Btn onClick={()=>setMyMic(!myMic)} v="ghost" sz="sm">{myMic?"🎙️":"🔇"}</Btn>
+                <Btn onClick={()=>{setShowPL(!showPL);setShowChat(false);}} v={showPL?"primary":"ghost"} sz="sm">🎵</Btn>
+                <Btn onClick={()=>{setShowChat(!showChat);setShowPL(false);}} v={showChat?"primary":"ghost"} sz="sm">💬</Btn>
+                {!user.isGuest&&(
+                  <Btn onClick={toggleMic} v={micOn?"ghost":"danger"} sz="sm">{micOn?"🎙️":"🔇"}</Btn>
+                )}
                 <Btn onClick={leave} v="danger" sz="sm">📵</Btn>
               </div>
             </div>
+
+            {/* Members */}
             <div style={{display:"flex",gap:12,flexWrap:"wrap",paddingBottom:16}}>
               {(Array.isArray(inRoom.members)?inRoom.members:[]).map((m,i)=>{
                 const isMe=m.init===user.init;
-                const speaking=isMe?myMic:m.mic;
+                const isSpeaking=speakers.includes(isMe?user.name:m.name);
                 return(
                   <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,position:"relative"}}>
                     {isHost&&!isMe&&(
@@ -397,17 +584,32 @@ function VoiceRoomsPage({user}){
                         <button onClick={()=>kick(m.init)} style={{width:16,height:16,borderRadius:"50%",background:T.redBg,border:"1px solid rgba(244,63,94,.3)",cursor:"pointer",fontSize:8,display:"flex",alignItems:"center",justifyContent:"center",color:T.red,fontFamily:"inherit"}}>✕</button>
                       </div>
                     )}
-                    <div style={{padding:3,borderRadius:"50%",border:"2.5px solid "+(speaking?T.green:T.border),boxShadow:speaking?"0 0 12px rgba(16,185,129,.4)":"none",transition:"all .3s"}}>
-                      <Av init={m.init} bg={T.card} tc={T.brand2} grad={isMe} size={48}/>
+                    <div style={{padding:3,borderRadius:"50%",
+                      border:"2.5px solid "+(isSpeaking?T.green:T.border),
+                      boxShadow:isSpeaking?"0 0 16px rgba(16,185,129,.5)":"none",
+                      transition:"all .2s"}}>
+                      <Av init={m.init} bg={T.card} tc={T.brand2} grad={isMe} isSelf={isMe} size={48}/>
                     </div>
                     <div style={{fontSize:11,color:T.brand2,fontWeight:700,maxWidth:56,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isMe?"คุณ":m.name}</div>
-                    <div style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:speaking?"#1A3A2A":T.border,color:speaking?T.green:T.muted,fontWeight:600}}>{speaking?"🎙":"🔇"}</div>
+                    {/* ไมค์ animation เมื่อพูด */}
+                    {isSpeaking?(
+                      <div style={{display:"flex",alignItems:"flex-end",gap:1.5,height:14}}>
+                        {[3,6,9,6,3].map((h,j)=>(
+                          <div key={j} style={{width:2.5,borderRadius:2,background:T.green,
+                            animation:`mic-wave ${0.4+j*0.08}s ease-in-out infinite alternate`,
+                            animationDelay:`${j*60}ms`}}/>
+                        ))}
+                      </div>
+                    ):(
+                      <span style={{fontSize:11,color:T.muted}}>{(isMe?micOn:m.mic)?"🎙️":"🔇"}</span>
+                    )}
                   </div>
                 );
               })}
             </div>
           </div>
           {showPL&&<div style={{padding:"0 16px 16px"}}><YoutubePlaylist playlist={inRoom.playlist} nowPlaying={inRoom.nowPlaying||null} songStartedAt={inRoom.songStartedAt||null} onAdd={addSong} onRemove={removeSong} onPlay={playSong} isHost={isHost}/></div>}
+          {showChat&&<div style={{padding:"0 16px 16px"}}><RoomChat roomId={inRoomId} user={user}/></div>}
         </Card>
       )}
 
@@ -496,7 +698,10 @@ function PostCard({p,user}){
     <Card style={{marginBottom:12}}>
       <div style={{padding:"16px 16px 0"}}>
         <div style={{display:"flex",gap:12,marginBottom:12}}>
-          <Av init={p.authorInit||p.author?.slice(0,2)||"??"} bg={T.card} tc={T.brand2} size={42}/>
+          {p.authorAvatar
+          ? <img src={p.authorAvatar} alt={p.author} style={{width:42,height:42,borderRadius:"50%",objectFit:"cover",flexShrink:0,border:"2px solid "+T.border}}/>
+          : <Av init={p.authorInit||p.author?.slice(0,2)||"??"} bg={T.card} tc={T.brand2} size={42}/>
+        }
           <div style={{flex:1}}>
             <div style={{fontSize:14,fontWeight:700,color:T.text}}>{p.author}</div>
             <div style={{fontSize:12,color:T.muted,display:"flex",flexWrap:"wrap",gap:6,marginTop:3}}>
@@ -508,7 +713,7 @@ function PostCard({p,user}){
         </div>
         {p.content&&<div style={{fontSize:15,color:T.text,lineHeight:1.75,marginBottom:4}}>{p.content}</div>}
       </div>
-      <ImgGrid images={p.images}/>
+      <ImgGrid images={p.images} mediaTypes={p.mediaTypes}/>
       <div style={{padding:"0 16px 14px"}}>
         <div style={{borderTop:"1px solid "+T.border,paddingTop:10,display:"flex",gap:7}}>
           <Btn onClick={handleLike} v={liked?"primary":"ghost"} sz="sm">{liked?"❤️":"🤍"} {likeCount}</Btn>
@@ -561,7 +766,29 @@ function NewPostBox({user}){
   const [posting,setPosting]=useState(false);
   const fileRef=useRef();
 
-  function handleFiles(e){Array.from(e.target.files).forEach(f=>{const r=new FileReader();r.onload=ev=>setImages(p=>[...p,{src:ev.target.result,name:f.name}]);r.readAsDataURL(f);});e.target.value="";}
+  function handleFiles(e){
+    Array.from(e.target.files).forEach(f=>{
+      if(f.type.startsWith("video/")){
+        // ตรวจสอบขนาดไฟล์วิดีโอ (สูงสุด 30MB สำหรับ 30 วินาที)
+        if(f.size > 30*1024*1024){setErr("วิดีโอใหญ่เกิน 30MB กรุณาบีบอัดก่อน");return;}
+        const vid=document.createElement("video");
+        vid.preload="metadata";
+        vid.onloadedmetadata=()=>{
+          URL.revokeObjectURL(vid.src);
+          if(vid.duration>30){setErr("วิดีโอต้องไม่เกิน 30 วินาที (ของคุณ: "+Math.round(vid.duration)+"วิ)");return;}
+          const r=new FileReader();
+          r.onload=ev=>setImages(p=>[...p,{src:ev.target.result,name:f.name,isVideo:true,duration:Math.round(vid.duration)}]);
+          r.readAsDataURL(f);
+        };
+        vid.src=URL.createObjectURL(f);
+      } else {
+        const r=new FileReader();
+        r.onload=ev=>setImages(p=>[...p,{src:ev.target.result,name:f.name,isVideo:false}]);
+        r.readAsDataURL(f);
+      }
+    });
+    e.target.value="";
+  }
 
   async function submit(){
     if(!text.trim()&&!images.length){setErr("เขียนหรือเพิ่มรูปก่อนนะ");return;}
@@ -571,8 +798,10 @@ function NewPostBox({user}){
       const postInit = postName.slice(0,2).toUpperCase();
       await addDoc(collection(db,"posts"),{
         author:postName, authorInit:postInit,
+        authorAvatar: ls.get("avatarImg",""),
         content:text.trim(), mood, privacy,
         images:images.map(i=>i.src),
+        mediaTypes:images.map(i=>i.isVideo?"video":"image"),
         likes:0, liked:false, comments:[],
         createdAt:serverTimestamp()
       });
@@ -585,7 +814,7 @@ function NewPostBox({user}){
     <Card style={{marginBottom:14}}>
       <div style={{padding:"16px"}}>
         <div style={{display:"flex",gap:12}}>
-          <Av init={user.init} grad size={42}/>
+          <Av init={user.init} grad isSelf size={42}/>
           <textarea value={text} onChange={e=>{setText(e.target.value);setErr("");}} placeholder="คุณรู้สึกยังไงวันนี้? 💜"
             style={{flex:1,border:"1px solid "+T.border,borderRadius:14,padding:"10px 14px",fontSize:14,resize:"none",outline:"none",minHeight:72,lineHeight:1.6,background:T.surface,color:T.text,fontFamily:"inherit",transition:"border .15s"}}
             onFocus={e=>e.target.style.borderColor=T.borderHi} onBlur={e=>e.target.style.borderColor=T.border}/>
@@ -594,7 +823,11 @@ function NewPostBox({user}){
           <div style={{display:"flex",gap:7,flexWrap:"wrap",marginTop:10,marginLeft:54}}>
             {images.map((img,i)=>(
               <div key={i} style={{position:"relative",width:72,height:72,borderRadius:12,overflow:"hidden",border:"1px solid "+T.border}}>
-                <img src={img.src} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                {img.isVideo
+                  ? <video src={img.src} style={{width:"100%",height:"100%",objectFit:"cover"}} muted/>
+                  : <img src={img.src} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                }
+                {img.isVideo&&<div style={{position:"absolute",bottom:2,left:2,background:"rgba(0,0,0,.7)",color:"#fff",fontSize:9,padding:"1px 4px",borderRadius:4}}>{img.duration}วิ 🎬</div>}
                 <button onClick={()=>setImages(imgs=>imgs.filter((_,j)=>j!==i))} style={{position:"absolute",top:3,right:3,width:18,height:18,borderRadius:"50%",background:"rgba(0,0,0,.7)",border:"none",color:"#fff",cursor:"pointer",fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>✕</button>
               </div>
             ))}
