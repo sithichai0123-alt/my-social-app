@@ -417,7 +417,8 @@ function VoiceRoomsPage({user}){
   const roomName=inRoom?`warmly-${inRoomId}`:"";
 
   // LiveKit voice hook
-    roomName, user.name, !!inRoomId && !user.isGuest
+  const {connected,micOn,toggleMic,isSpeaking,error:voiceError}=useVoiceRoom(
+    inRoomName, user.name, !!inRoomId && !user.isGuest
   );
 
   useEffect(()=>{
