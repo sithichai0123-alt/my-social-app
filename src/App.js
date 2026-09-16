@@ -2,8 +2,6 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, onSnapshot, orderBy, query, doc, updateDoc, increment, serverTimestamp, deleteDoc } from "firebase/firestore";
 import { Room, RoomEvent, Track, createLocalAudioTrack } from "livekit-client";
-import { Room, RoomEvent, Track, createLocalAudioTrack } from "livekit-client";
-
 // ── Firebase Config ──────────────────────────────────────
 const firebaseConfig = {
   apiKey: "AIzaSyBlruTPdcfWPMgJkQufyhtZnPsT_mbDvKs",
