@@ -48,12 +48,10 @@ const AUTO_REPLIES=["อ่อ จริงๆ เหรอ 😊","รู้ส�
 
 function getYTId(url){try{const u=new URL(url.trim());if(u.hostname.includes("youtu.be"))return u.pathname.slice(1).split(/[?&]/)[0];return u.searchParams.get("v")||"";}catch{return "";}}
 function ytThumb(id){return`https://img.youtube.com/vi/${id}/mqdefault.jpg`;}
-function ytEmbed(id){return`https://www.youtube.com/embed/${id}?autoplay=0&rel=0`;}
 function timeAgo(ts){if(!ts)return"เมื่อกี้";const s=Math.floor((Date.now()-ts.toMillis())/1000);if(s<60)return"เมื่อกี้";if(s<3600)return Math.floor(s/60)+" นาทีที่แล้ว";if(s<86400)return Math.floor(s/3600)+" ชม.";return Math.floor(s/86400)+" วันที่แล้ว";}
 
 // ── Shared UI ─────────────────────────────────────────────
 function Av({init,bg,tc,size=40,online,grad,isSelf}){
-  // ถ้าเป็น avatar ของตัวเอง (isSelf) ให้ดึงรูปจาก localStorage
   const selfImg = isSelf ? ls.get("avatarImg","") : "";
   return(<div style={{position:"relative",flexShrink:0}}>
     {selfImg
@@ -64,10 +62,10 @@ function Av({init,bg,tc,size=40,online,grad,isSelf}){
   </div>);
 }
 
-function Btn({children,onClick,v="primary",sz="md",full,style={}}){
+function Btn({children,onClick,v="primary",sz="md",full,disabled,style={}}){
   const variants={primary:{background:T.brandGrad,color:"#fff",border:"none",boxShadow:"0 4px 16px rgba(124,92,252,.35)"},ghost:{background:"transparent",color:T.sub,border:"1px solid "+T.border},outline:{background:"transparent",color:T.brand2,border:"1px solid "+T.borderHi},danger:{background:T.redBg,color:T.red,border:"1px solid rgba(244,63,94,.3)"}};
   const sizes={sm:{padding:"6px 14px",borderRadius:10,fontSize:12},md:{padding:"9px 20px",borderRadius:12,fontSize:14},lg:{padding:"13px 28px",borderRadius:14,fontSize:15}};
-  return(<button onClick={onClick} style={{fontFamily:"inherit",fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,width:full?"100%":undefined,transition:"all .18s",...variants[v],...sizes[sz],...style}}>{children}</button>);
+  return(<button onClick={onClick} disabled={disabled} style={{fontFamily:"inherit",fontWeight:600,cursor:disabled?"not-allowed":"pointer",opacity:disabled?.6:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,width:full?"100%":undefined,transition:"all .18s",...variants[v],...sizes[sz],...style}}>{children}</button>);
 }
 
 function Card({children,style={}}){return(<div style={{background:T.card,border:"1px solid "+T.border,borderRadius:18,overflow:"hidden",boxShadow:"0 4px 24px rgba(0,0,0,.3)",...style}}>{children}</div>);}
@@ -102,7 +100,6 @@ function AuthPage({onLogin}){
   const [name,setName]=useState("");
   const [err,setErr]=useState("");
   function loginGoogle(){
-    // ดึงชื่อที่เคยแก้ไว้จาก localStorage ถ้ามี
     const savedName = ls.get("displayName","สิทธิชัย");
     const savedInit = savedName.slice(0,2).toUpperCase();
     const u={name:savedName,email:"sittichai@gmail.com",avatar:"",isGuest:false,init:savedInit};
@@ -137,9 +134,6 @@ function AuthPage({onLogin}){
 }
 
 // ── YouTube Playlist ──────────────────────────────────────
-// YoutubePlaylist — Sync เวลาเพลงด้วย startedAt timestamp
-// Host กดเปิด → บันทึก nowPlaying + songStartedAt ใน Firebase
-// คนใหม่เข้ามา → คำนวณว่าเพลงเล่นไปแล้วกี่วินาที → ข้ามไปตรงนั้นเลย
 function YoutubePlaylist({playlist,nowPlaying,songStartedAt,onAdd,onRemove,onPlay,isHost}){
   const [url,setUrl]=useState("");
   const [title,setTitle]=useState("");
@@ -149,13 +143,11 @@ function YoutubePlaylist({playlist,nowPlaying,songStartedAt,onAdd,onRemove,onPla
   const safeList=Array.isArray(playlist)?playlist:[];
   const currentSong=safeList.find(s=>s.id===nowPlaying);
 
-  // Reset joined state เมื่อเพลงเปลี่ยน
   useEffect(()=>{
     setJoined(false);
     setSeekSrc(null);
   },[nowPlaying]);
 
-  // คำนวณ embed URL พร้อม start time (seconds ที่เพลงเล่นไปแล้ว)
   function getSeekUrl(songId){
     if(!songStartedAt)return `https://www.youtube.com/embed/${songId}?autoplay=1&rel=0&modestbranding=1`;
     const elapsed=Math.floor((Date.now()-songStartedAt)/1000);
@@ -164,7 +156,6 @@ function YoutubePlaylist({playlist,nowPlaying,songStartedAt,onAdd,onRemove,onPla
   }
 
   function handleJoin(){
-    // คนใหม่กดเข้าฟัง → สร้าง URL พร้อม start time ณ ขณะนั้น
     setSeekSrc(getSeekUrl(nowPlaying));
     setJoined(true);
   }
@@ -179,7 +170,6 @@ function YoutubePlaylist({playlist,nowPlaying,songStartedAt,onAdd,onRemove,onPla
     }catch{setErr("ลองใหม่อีกครั้ง");}
   }
 
-  // คำนวณเวลาที่ผ่านไปแสดง
   function elapsed(){
     if(!songStartedAt)return"";
     const s=Math.floor((Date.now()-songStartedAt)/1000);
@@ -198,7 +188,6 @@ function YoutubePlaylist({playlist,nowPlaying,songStartedAt,onAdd,onRemove,onPla
         </span>}
       </div>
 
-      {/* Add song - Host only */}
       {isHost&&(
         <div style={{background:T.surface,border:"1px dashed "+T.border,borderRadius:14,padding:"12px 14px",marginBottom:12}}>
           <div style={{fontSize:12,color:T.muted,marginBottom:8}}>➕ เพิ่มจาก YouTube URL</div>
@@ -209,10 +198,8 @@ function YoutubePlaylist({playlist,nowPlaying,songStartedAt,onAdd,onRemove,onPla
         </div>
       )}
 
-      {/* Now Playing */}
       {currentSong&&(
         <div style={{marginBottom:14,borderRadius:14,overflow:"hidden",border:"1px solid "+T.borderHi}}>
-          {/* Header */}
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:"linear-gradient(90deg,"+T.brand+"44,"+T.brand2+"22)"}}>
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <img src={currentSong.thumb} alt="" style={{width:36,height:26,borderRadius:6,objectFit:"cover"}} onError={e=>e.target.style.display="none"}/>
@@ -228,9 +215,7 @@ function YoutubePlaylist({playlist,nowPlaying,songStartedAt,onAdd,onRemove,onPla
             {isHost&&<button onClick={()=>onPlay(null)} style={{background:T.redBg,border:"1px solid rgba(244,63,94,.3)",color:T.red,cursor:"pointer",fontSize:12,padding:"4px 10px",borderRadius:8,fontFamily:"inherit",fontWeight:600}}>⏹ หยุด</button>}
           </div>
 
-          {/* Player */}
           {isHost?(
-            // Host เล่นตั้งแต่ต้น
             <iframe
               key={currentSong.id}
               src={`https://www.youtube.com/embed/${currentSong.id}?autoplay=1&rel=0&modestbranding=1`}
@@ -238,7 +223,6 @@ function YoutubePlaylist({playlist,nowPlaying,songStartedAt,onAdd,onRemove,onPla
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen style={{display:"block"}} title="YouTube player"/>
           ):joined&&seekSrc?(
-            // คนอื่น — เล่น sync ณ เวลาที่กด (ข้ามไปตรงที่เพลงเล่นอยู่)
             <iframe
               key={seekSrc}
               src={seekSrc}
@@ -246,7 +230,6 @@ function YoutubePlaylist({playlist,nowPlaying,songStartedAt,onAdd,onRemove,onPla
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen style={{display:"block"}} title="YouTube player"/>
           ):(
-            // คนใหม่ — แสดง banner พร้อมบอกว่าเพลงเล่นไปแล้วกี่นาที
             <div style={{padding:"24px 16px",textAlign:"center",background:T.surface}}>
               <div style={{fontSize:28,marginBottom:10}}>🎵</div>
               <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:4}}>กำลังเล่นเพลงในห้องนี้</div>
@@ -271,7 +254,6 @@ function YoutubePlaylist({playlist,nowPlaying,songStartedAt,onAdd,onRemove,onPla
         </div>
       )}
 
-      {/* Playlist items */}
       <div style={{display:"flex",flexDirection:"column",gap:7}}>
         {safeList.map((s,i)=>{
           const isPlaying=nowPlaying===s.id;
@@ -288,7 +270,7 @@ function YoutubePlaylist({playlist,nowPlaying,songStartedAt,onAdd,onRemove,onPla
                 </div>
               </div>
               <div style={{display:"flex",gap:6}}>
-                {isHost&&<button onClick={()=>onPlay(isPlaying?null:s.id)} style={{border:"none",background:"transparent",color:isPlaying?T.red:T.brand2,cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>{isPlaying?"⏹":"▶"}</button>}
+                {isHost&&<button onClick={()=>onPlay(isPlaying?null:s.id, Date.now())} style={{border:"none",background:"transparent",color:isPlaying?T.red:T.brand2,cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>{isPlaying?"⏹":"▶"}</button>}
                 {isHost&&<button onClick={()=>onRemove(s.id)} style={{border:"none",background:"transparent",color:T.muted,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>✕</button>}
               </div>
             </div>
@@ -299,7 +281,7 @@ function YoutubePlaylist({playlist,nowPlaying,songStartedAt,onAdd,onRemove,onPla
   );
 }
 
-// ── Room Chat (text chat ในห้องเสียง) ────────────────────
+// ── Room Chat ─────────────────────────────────────────────
 function RoomChat({roomId,user}){
   const [msgs,setMsgs]=useState([]);
   const [input,setInput]=useState("");
@@ -394,19 +376,17 @@ function useVoiceRoom(roomName, userName, enabled){
     setMicOn(next);
   }
 
-  function isSpeaking(identity){ return !!speaking[identity]; }
+  function checkIsSpeaking(identity){ return !!speaking[identity]; }
 
-  return{connected,micOn,toggleMic,isSpeaking,error};
+  return{connected,micOn,toggleMic,isSpeaking:checkIsSpeaking,error};
 }
 
-// ── Voice Rooms (Firebase + LiveKit) ─────────────────────
+// ── Voice Rooms Page ──────────────────────────────────────
 function VoiceRoomsPage({user}){
   const [rooms,setRooms]=useState([]);
   const [inRoomId,setInRoomId]=useState(null);
-  const [inRoomName,setInRoomName]=useState("");
   const [showPL,setShowPL]=useState(false);
   const [showChat,setShowChat]=useState(false);
-  const {connected,micOn,toggleMic,isSpeaking,error:voiceError}=useVoiceRoom(inRoomName,user.name,!!inRoomId);
   const [newName,setNewName]=useState("");
   const [creating,setCreating]=useState(false);
   const [nameErr,setNameErr]=useState("");
@@ -414,9 +394,8 @@ function VoiceRoomsPage({user}){
 
   const inRoom=rooms.find(r=>r.id===inRoomId);
   const isHost=inRoom&&inRoom.hostInit===user.init;
-  const roomName=inRoom?`warmly-${inRoomId}`:"";
+  const inRoomName=inRoom?`warmly-${inRoomId}`:"";
 
-  // LiveKit voice hook
   const {connected,micOn,toggleMic,isSpeaking,error:voiceError}=useVoiceRoom(
     inRoomName, user.name, !!inRoomId && !user.isGuest
   );
@@ -445,7 +424,7 @@ function VoiceRoomsPage({user}){
     const members=(Array.isArray(inRoom.members)?inRoom.members:[]).filter(m=>m.init!==user.init);
     if(members.length===0){await deleteDoc(doc(db,"voiceRooms",inRoomId));}
     else{await updateDoc(doc(db,"voiceRooms",inRoomId),{members});}
-    setInRoomId(null);setInRoomName("");setShowPL(false);setShowChat(false);
+    setInRoomId(null);setShowPL(false);setShowChat(false);
   }
 
   async function hostToggleMic(init){
@@ -468,7 +447,7 @@ function VoiceRoomsPage({user}){
       playlist:[],nowPlaying:null,songStartedAt:null,
       createdAt:serverTimestamp()
     });
-    setInRoomId(r.id);setMyMic(true);setNewName("");setCreating(false);setNameErr("");
+    setInRoomId(r.id);setNewName("");setCreating(false);setNameErr("");
   }
 
   async function addSong(song){
@@ -493,7 +472,6 @@ function VoiceRoomsPage({user}){
     });
   }
 
-
   return(
     <div>
       {inRoom&&(
@@ -509,7 +487,7 @@ function VoiceRoomsPage({user}){
                   {user.isGuest?"👀 ดูอย่างเดียว (Guest)":connected?"🎙️ เชื่อมต่อเสียงแล้ว":"⏳ กำลังเชื่อมต่อ..."}
                   {" • "}{(inRoom.members||[]).length} คน
                 </div>
-                {error&&<div style={{fontSize:11,color:T.red,marginTop:3}}>{error}</div>}
+                {voiceError&&<div style={{fontSize:11,color:T.red,marginTop:3}}>{voiceError}</div>}
               </div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                 <Btn onClick={()=>{setShowPL(!showPL);setShowChat(false);}} v={showPL?"primary":"ghost"} sz="sm">🎵</Btn>
@@ -525,7 +503,7 @@ function VoiceRoomsPage({user}){
             <div style={{display:"flex",gap:12,flexWrap:"wrap",paddingBottom:16}}>
               {(Array.isArray(inRoom.members)?inRoom.members:[]).map((m,i)=>{
                 const isMe=m.init===user.init;
-                const isSpeaking=speakers.includes(isMe?user.name:m.name);
+                const userIsSpeaking=isSpeaking(m.name);
                 return(
                   <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,position:"relative"}}>
                     {isHost&&!isMe&&(
@@ -535,14 +513,13 @@ function VoiceRoomsPage({user}){
                       </div>
                     )}
                     <div style={{padding:3,borderRadius:"50%",
-                      border:"2.5px solid "+(isSpeaking?T.green:T.border),
-                      boxShadow:isSpeaking?"0 0 16px rgba(16,185,129,.5)":"none",
+                      border:"2.5px solid "+(userIsSpeaking?T.green:T.border),
+                      boxShadow:userIsSpeaking?"0 0 16px rgba(16,185,129,.5)":"none",
                       transition:"all .2s"}}>
                       <Av init={m.init} bg={T.card} tc={T.brand2} grad={isMe} isSelf={isMe} size={48}/>
                     </div>
                     <div style={{fontSize:11,color:T.brand2,fontWeight:700,maxWidth:56,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isMe?"คุณ":m.name}</div>
-                    {/* ไมค์ animation เมื่อพูด */}
-                    {isSpeaking?(
+                    {userIsSpeaking?(
                       <div style={{display:"flex",alignItems:"flex-end",gap:1.5,height:14}}>
                         {[3,6,9,6,3].map((h,j)=>(
                           <div key={j} style={{width:2.5,borderRadius:2,background:T.green,
@@ -719,7 +696,6 @@ function NewPostBox({user}){
   function handleFiles(e){
     Array.from(e.target.files).forEach(f=>{
       if(f.type.startsWith("video/")){
-        // ตรวจสอบขนาดไฟล์วิดีโอ (สูงสุด 30MB สำหรับ 30 วินาที)
         if(f.size > 30*1024*1024){setErr("วิดีโอใหญ่เกิน 30MB กรุณาบีบอัดก่อน");return;}
         const vid=document.createElement("video");
         vid.preload="metadata";
@@ -801,7 +777,7 @@ function NewPostBox({user}){
   );
 }
 
-// ── Feed (Firebase realtime) ──────────────────────────────
+// ── Feed Page ─────────────────────────────────────────────
 function FeedPage({user}){
   const [posts,setPosts]=useState([]);
   const [loading,setLoading]=useState(true);
@@ -825,7 +801,7 @@ function FeedPage({user}){
   );
 }
 
-// ── Chat (local) ──────────────────────────────────────────
+// ── Chat Page ─────────────────────────────────────────────
 function ChatPage({user}){
   const [chats,setChats]=useState({1:[{id:"m1",from:"them",text:"หวัดดีจ้า วันนี้เป็นยังไงบ้าง 😊",type:"text"}],2:[{id:"m2",from:"them",text:"เฮ้ มีอะไรเล่าให้ฟังมั้ย 👂",type:"text"}],3:[{id:"m3",from:"them",text:"ง่วงมากเลยวันนี้ 😴",type:"text"}],4:[{id:"m4",from:"them",text:"อยู่บ้านคนเดียวเหงาๆ",type:"text"}],5:[{id:"m5",from:"them",text:"ใครอยากคุยบ้างมั้ย! 🙋",type:"text"}]});
   const [active,setActive]=useState(1);
@@ -914,7 +890,7 @@ function ChatPage({user}){
   );
 }
 
-// ── Profile ───────────────────────────────────────────────
+// ── Profile Page ──────────────────────────────────────────
 function ProfilePage({user,posts,onUpdateName}){
   const [bio,setBio]=useState(()=>ls.get("bio","ชอบคุยเล่น • ฟังเพื่อนใหม่ 💜"));
   const [mood,setMood]=useState(()=>ls.get("mood","สบายดี 😊"));
@@ -928,7 +904,6 @@ function ProfilePage({user,posts,onUpdateName}){
     if(!n)return;
     setDisplayName(n);
     ls.set("displayName",n);
-    // อัปเดต user object ใน localStorage ด้วย
     const saved=ls.get("user",{});
     ls.set("user",{...saved,name:n,init:n.slice(0,2).toUpperCase()});
     onUpdateName&&onUpdateName(n);
@@ -1005,7 +980,7 @@ function ProfilePage({user,posts,onUpdateName}){
   );
 }
 
-// ── Privacy ───────────────────────────────────────────────
+// ── Privacy Page ──────────────────────────────────────────
 function PrivacyPage(){
   const [s,setS]=useState({postDef:"public",whoSee:"public",whoCmt:"everyone",whoMsg:"everyone",showMood:true,showOnline:true,showLast:true,friendList:"friends"});
   const set=(k,v)=>setS(p=>({...p,[k]:v}));
@@ -1032,7 +1007,7 @@ function PrivacyPage(){
   );
 }
 
-// ── Root ──────────────────────────────────────────────────
+// ── Root App ──────────────────────────────────────────────
 const TABS=[{key:"feed",icon:"🏠",label:"ฟีด"},{key:"chat",icon:"💬",label:"แชท"},{key:"voice",icon:"🎙️",label:"เสียง"},{key:"profile",icon:"👤",label:"โปรไฟล์"},{key:"privacy",icon:"🔒",label:"ส่วนตัว"}];
 
 export default function App(){
@@ -1048,11 +1023,11 @@ export default function App(){
   },[user]);
 
   async function handleLogout(){
-    // ปิดห้องที่ตัวเองเป็น host
     try {
-      const snap = await import("firebase/firestore").then(m=>m.getDocs(m.query(m.collection(db,"voiceRooms"))));
+      const { getDocs, query, collection, deleteDoc, doc } = await import("firebase/firestore");
+      const snap = await getDocs(query(collection(db,"voiceRooms")));
       const myRooms = snap.docs.filter(d=>d.data().hostInit===user.init);
-      for(const r of myRooms){ await import("firebase/firestore").then(m=>m.deleteDoc(m.doc(db,"voiceRooms",r.id))); }
+      for(const r of myRooms){ await deleteDoc(doc(db,"voiceRooms",r.id)); }
     } catch(e){}
     ls.del("user"); setUser(null);
   }
