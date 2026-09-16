@@ -11,7 +11,7 @@ export default async function handler(req, res) {
     { identity: username, ttl: '10h' }
   );
   at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true });
-  const token = await at.toJwt();
+  const token = at.toJwt();
   res.setHeader('Access-Control-Allow-Origin', '*');
   return res.status(200).json({ token, url: process.env.LIVEKIT_URL });
 }
