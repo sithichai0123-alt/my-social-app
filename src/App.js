@@ -396,7 +396,7 @@ function useVoiceRoom(roomName, userName, enabled){
 
   function isSpeaking(identity){ return !!speaking[identity]; }
 
-  return{connected,micOn:_micOn,toggleMic,isSpeaking,error};
+  return{connected,micOn:_micOn,toggleMic,isSpeaking,voiceError:error};
 }
 
 // ── Voice Rooms (Firebase + LiveKit) ─────────────────────
@@ -414,7 +414,7 @@ function VoiceRoomsPage({user}){
   const inRoom=rooms.find(r=>r.id===inRoomId);
   const isHost=inRoom&&inRoom.hostInit===user.init;
   // LiveKit voice hook
-  const {connected,micOn,toggleMic,isSpeaking,error:voiceError}=useVoiceRoom(
+  const {connected,micOn,toggleMic,isSpeaking,voiceError}=useVoiceRoom(
     inRoomName, user.name, !!inRoomId && !user.isGuest
   );
 
@@ -465,7 +465,7 @@ function VoiceRoomsPage({user}){
       playlist:[],nowPlaying:null,songStartedAt:null,
       createdAt:serverTimestamp()
     });
-    setInRoomId(r.id);setMyMic(true);setNewName("");setCreating(false);setNameErr("");
+    setInRoomId(r.id);setNewName("");setCreating(false);setNameErr("");
   }
 
   async function addSong(song){
