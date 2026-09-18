@@ -357,19 +357,24 @@ function useVoiceRoom(roomName, userName, enabled){
 
   useEffect(()=>{
     if(!enabled||!roomName||!userName)return;
-    const room = new Room({audioCaptureDefaults:{echoCancellation:true,noiseSuppression:true}});
+    let room;
+    try{ room = new Room({audioCaptureDefaults:{echoCancellation:true,noiseSuppression:true}}); }
+    catch(e){ setError("ไม่รองรับ LiveKit"); return; }
     roomRef.current = room;
 
     async function connect(){
       try{
         const res = await fetch(`/api/token?room=${encodeURIComponent(roomName)}&username=${encodeURIComponent(userName)}`);
-        if(!res.ok) throw new Error("Token error");
-        const {token,url} = await res.json();
-        await room.connect(url,token);
-        const track = await createLocalAudioTrack({echoCancellation:true,noiseSuppression:true});
-        await room.localParticipant.publishTrack(track);
+        if(!res.ok) throw new Error("Token error "+res.status);
+        const data = await res.json();
+        if(!data.token||!data.url) throw new Error("Invalid token response");
+        await room.connect(data.url, data.token);
+        try{
+          const track = await createLocalAudioTrack({echoCancellation:true,noiseSuppression:true});
+          await room.localParticipant.publishTrack(track);
+        }catch(e2){ console.warn("Mic error:",e2); } // ไมค์ fail ไม่ทำให้ crash
         setConnected(true);setError("");
-      }catch(e){setError("เชื่อมต่อเสียงไม่สำเร็จ");}
+      }catch(e){ setError("เชื่อมต่อเสียงไม่สำเร็จ: "+e.message); console.error("LiveKit:",e); }
     }
 
     room.on(RoomEvent.ActiveSpeakersChanged,()=>{
@@ -397,6 +402,20 @@ function useVoiceRoom(roomName, userName, enabled){
   function isSpeaking(identity){ return !!speaking[identity]; }
 
   return{connected,micOn:_micOn,toggleMic,isSpeaking,voiceError:error};
+}
+
+// ── Error Boundary สำหรับ Voice Rooms ───────────────────────
+function VoiceErrorBoundary({children}){
+  const [err,setErr]=useState(null);
+  if(err) return(
+    <div style={{padding:24,textAlign:"center"}}>
+      <div style={{fontSize:24,marginBottom:8}}>⚠️</div>
+      <div style={{color:T.red,fontWeight:700,marginBottom:8}}>ห้องเสียงเจอปัญหา</div>
+      <div style={{color:T.muted,fontSize:13,marginBottom:16}}>{err}</div>
+      <Btn onClick={()=>setErr(null)} v="primary" sz="sm">ลองใหม่</Btn>
+    </div>
+  );
+  return children;
 }
 
 // ── Voice Rooms (Firebase + LiveKit) ─────────────────────
@@ -506,7 +525,7 @@ function VoiceRoomsPage({user}){
                   {user.isGuest?"👀 ดูอย่างเดียว (Guest)":connected?"🎙️ เชื่อมต่อเสียงแล้ว":"⏳ กำลังเชื่อมต่อ..."}
                   {" • "}{(inRoom.members||[]).length} คน
                 </div>
-                {error&&<div style={{fontSize:11,color:T.red,marginTop:3}}>{error}</div>}
+                {voiceError&&<div style={{fontSize:11,color:T.red,marginTop:3}}>⚠️ {voiceError}</div>}
               </div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                 <Btn onClick={()=>{setShowPL(!showPL);setShowChat(false);}} v={showPL?"primary":"ghost"} sz="sm">🎵</Btn>
@@ -1073,7 +1092,7 @@ export default function App(){
         <div style={{flex:1,padding:page==="chat"?"0":"14px 12px 80px"}}>
           {page==="feed"    &&<FeedPage user={user}/>}
           {page==="chat"    &&<ChatPage user={user}/>}
-          {page==="voice"   &&<VoiceRoomsPage user={user}/>}
+          {page==="voice"   &&<VoiceErrorBoundary><VoiceRoomsPage user={user}/></VoiceErrorBoundary>}
           {page==="profile" &&<ProfilePage user={user} posts={posts} onUpdateName={n=>{const u={...user,name:n,init:n.slice(0,2).toUpperCase()};ls.set("user",u);setUser(u);}}/>}
           {page==="privacy" &&<PrivacyPage/>}
         </div>
