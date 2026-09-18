@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, onSnapshot, orderBy, query, doc, updateDoc, increment, serverTimestamp, deleteDoc } from "firebase/firestore";
-import { Room, RoomEvent, Track } from "livekit-client";
+import { Room, RoomEvent, Track, createLocalAudioTrack } from "livekit-client";
 
 // ── Firebase Config ──────────────────────────────────────
 const firebaseConfig = {
@@ -288,7 +288,7 @@ function YoutubePlaylist({playlist,nowPlaying,songStartedAt,onAdd,onRemove,onPla
                 </div>
               </div>
               <div style={{display:"flex",gap:6}}>
-                {isHost&&<button onClick={()=>onPlay(isPlaying?null:s.id,isPlaying?null:Date.now())} style={{border:"none",background:"transparent",color:isPlaying?T.red:T.brand2,cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>{isPlaying?"⏹":"▶"}</button>}
+                {isHost&&<button onClick={()=>onPlay(isPlaying?null:s.id)} style={{border:"none",background:"transparent",color:isPlaying?T.red:T.brand2,cursor:"pointer",fontSize:16,fontFamily:"inherit"}}>{isPlaying?"⏹":"▶"}</button>}
                 {isHost&&<button onClick={()=>onRemove(s.id)} style={{border:"none",background:"transparent",color:T.muted,cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>✕</button>}
               </div>
             </div>
@@ -352,7 +352,7 @@ function useVoiceRoom(roomName, userName, enabled){
   const roomRef = useRef(null);
   const [connected,setConnected]=useState(false);
   const [speaking,setSpeaking]=useState({});
-  const [micOn,setMicOn]=useState(true);
+  const [_micOn,_setMicOn]=useState(true);
   const [error,setError]=useState("");
 
   useEffect(()=>{
@@ -365,10 +365,9 @@ function useVoiceRoom(roomName, userName, enabled){
         const res = await fetch(`/api/token?room=${encodeURIComponent(roomName)}&username=${encodeURIComponent(userName)}`);
         if(!res.ok) throw new Error("Token error");
         const {token,url} = await res.json();
-        if(!url||!token) throw new Error("LiveKit token response missing url/token");
         await room.connect(url,token);
-        await room.localParticipant.setMicrophoneEnabled(true);
-        setMicOn(true);
+        const track = await createLocalAudioTrack({echoCancellation:true,noiseSuppression:true});
+        await room.localParticipant.publishTrack(track);
         setConnected(true);setError("");
       }catch(e){setError("เชื่อมต่อเสียงไม่สำเร็จ");}
     }
@@ -390,20 +389,21 @@ function useVoiceRoom(roomName, userName, enabled){
   async function toggleMic(){
     const room=roomRef.current;
     if(!room?.localParticipant)return;
-    const next=!micOn;
+    const next=!_micOn;
     await room.localParticipant.setMicrophoneEnabled(next);
-    setMicOn(next);
+    _setMicOn(next);
   }
 
   function isSpeaking(identity){ return !!speaking[identity]; }
 
-  return{connected,micOn,toggleMic,isSpeaking,error};
+  return{connected,micOn:_micOn,toggleMic,isSpeaking,voiceError:error};
 }
 
 // ── Voice Rooms (Firebase + LiveKit) ─────────────────────
 function VoiceRoomsPage({user}){
   const [rooms,setRooms]=useState([]);
   const [inRoomId,setInRoomId]=useState(null);
+  const [inRoomName,setInRoomName]=useState("");
   const [showPL,setShowPL]=useState(false);
   const [showChat,setShowChat]=useState(false);
   const [newName,setNewName]=useState("");
@@ -413,11 +413,9 @@ function VoiceRoomsPage({user}){
 
   const inRoom=rooms.find(r=>r.id===inRoomId);
   const isHost=inRoom&&inRoom.hostInit===user.init;
-  const roomName=inRoom?`warmly-${inRoomId}`:"";
-
-  // LiveKit voice hook — ใช้ roomName ที่สร้างจาก room id โดยตรง
-  const {connected,micOn,toggleMic,isSpeaking,error:voiceError}=useVoiceRoom(
-    roomName, user.name, !!inRoomId && !!inRoom && !user.isGuest
+  // LiveKit voice hook
+  const {connected,micOn,toggleMic,isSpeaking,voiceError}=useVoiceRoom(
+    inRoomName, user.name, !!inRoomId && !user.isGuest
   );
 
   useEffect(()=>{
@@ -444,7 +442,7 @@ function VoiceRoomsPage({user}){
     const members=(Array.isArray(inRoom.members)?inRoom.members:[]).filter(m=>m.init!==user.init);
     if(members.length===0){await deleteDoc(doc(db,"voiceRooms",inRoomId));}
     else{await updateDoc(doc(db,"voiceRooms",inRoomId),{members});}
-    setInRoomId(null);setShowPL(false);setShowChat(false);
+    setInRoomId(null);setInRoomName("");setShowPL(false);setShowChat(false);
   }
 
   async function hostToggleMic(init){
@@ -508,7 +506,7 @@ function VoiceRoomsPage({user}){
                   {user.isGuest?"👀 ดูอย่างเดียว (Guest)":connected?"🎙️ เชื่อมต่อเสียงแล้ว":"⏳ กำลังเชื่อมต่อ..."}
                   {" • "}{(inRoom.members||[]).length} คน
                 </div>
-                {voiceError&&<div style={{fontSize:11,color:T.red,marginTop:3}}>{voiceError}</div>}
+                {error&&<div style={{fontSize:11,color:T.red,marginTop:3}}>{error}</div>}
               </div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                 <Btn onClick={()=>{setShowPL(!showPL);setShowChat(false);}} v={showPL?"primary":"ghost"} sz="sm">🎵</Btn>
@@ -524,7 +522,6 @@ function VoiceRoomsPage({user}){
             <div style={{display:"flex",gap:12,flexWrap:"wrap",paddingBottom:16}}>
               {(Array.isArray(inRoom.members)?inRoom.members:[]).map((m,i)=>{
                 const isMe=m.init===user.init;
-                const isSpeakingNow=isSpeaking(isMe?user.name:m.name);
                 return(
                   <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,position:"relative"}}>
                     {isHost&&!isMe&&(
@@ -541,7 +538,7 @@ function VoiceRoomsPage({user}){
                     </div>
                     <div style={{fontSize:11,color:T.brand2,fontWeight:700,maxWidth:56,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isMe?"คุณ":m.name}</div>
                     {/* ไมค์ animation เมื่อพูด */}
-                    {isSpeakingNow?(
+                    {isSpeaking?(
                       <div style={{display:"flex",alignItems:"flex-end",gap:1.5,height:14}}>
                         {[3,6,9,6,3].map((h,j)=>(
                           <div key={j} style={{width:2.5,borderRadius:2,background:T.green,
