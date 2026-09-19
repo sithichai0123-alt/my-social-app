@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, onSnapshot, orderBy, query, doc, updateDoc, increment, serverTimestamp, deleteDoc } from "firebase/firestore";
-import { Room, RoomEvent, Track } from "livekit-client";
+import { Room, RoomEvent, Track, createLocalAudioTrack } from "livekit-client";
 
 // ── Firebase Config ──────────────────────────────────────
 const firebaseConfig = {
@@ -64,10 +64,10 @@ function Av({init,bg,tc,size=40,online,grad,isSelf}){
   </div>);
 }
 
-function Btn({children,onClick,v="primary",sz="md",full,style={},disabled=false}){
+function Btn({children,onClick,v="primary",sz="md",full,style={}}){
   const variants={primary:{background:T.brandGrad,color:"#fff",border:"none",boxShadow:"0 4px 16px rgba(124,92,252,.35)"},ghost:{background:"transparent",color:T.sub,border:"1px solid "+T.border},outline:{background:"transparent",color:T.brand2,border:"1px solid "+T.borderHi},danger:{background:T.redBg,color:T.red,border:"1px solid rgba(244,63,94,.3)"}};
   const sizes={sm:{padding:"6px 14px",borderRadius:10,fontSize:12},md:{padding:"9px 20px",borderRadius:12,fontSize:14},lg:{padding:"13px 28px",borderRadius:14,fontSize:15}};
-  return(<button onClick={onClick} disabled={disabled} style={{fontFamily:"inherit",fontWeight:600,cursor:disabled?"not-allowed":"pointer",opacity:disabled?0.55:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,width:full?"100%":undefined,transition:"all .18s",...variants[v],...sizes[sz],...style}}>{children}</button>);
+  return(<button onClick={onClick} style={{fontFamily:"inherit",fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,width:full?"100%":undefined,transition:"all .18s",...variants[v],...sizes[sz],...style}}>{children}</button>);
 }
 
 function Card({children,style={}}){return(<div style={{background:T.card,border:"1px solid "+T.border,borderRadius:18,overflow:"hidden",boxShadow:"0 4px 24px rgba(0,0,0,.3)",...style}}>{children}</div>);}
@@ -303,32 +303,20 @@ function YoutubePlaylist({playlist,nowPlaying,songStartedAt,onAdd,onRemove,onPla
 function RoomChat({roomId,user}){
   const [msgs,setMsgs]=useState([]);
   const [input,setInput]=useState("");
-  const [chatError,setChatError]=useState("");
-  const [sending,setSending]=useState(false);
   const endRef=useRef();
   useEffect(()=>{
     const q=query(collection(db,"voiceRooms",roomId,"chat"),orderBy("t","asc"));
-    const unsub=onSnapshot(
-      q,
-      snap=>{setMsgs(snap.docs.map(d=>({id:d.id,...d.data()})));setChatError("");},
-      err=>{console.error("Room chat:",err);setChatError("ส่งหรือโหลดแชตไม่สำเร็จ ลองใหม่อีกครั้ง");}
-    );
+    const unsub=onSnapshot(q,snap=>setMsgs(snap.docs.map(d=>({id:d.id,...d.data()}))));
     return unsub;
   },[roomId]);
   useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth"});},[msgs]);
 
   async function send(){
-    const txt=input.trim();if(!txt||sending)return;
-    setSending(true);setChatError("");
-    try{
-      await addDoc(collection(db,"voiceRooms",roomId,"chat"),{
-        author:user.name,init:user.init,text:txt,t:serverTimestamp()
-      });
-      setInput("");
-    }catch(err){
-      console.error("Send room chat:",err);
-      setChatError("ส่งข้อความไม่สำเร็จ ข้อความยังอยู่ในช่องพิมพ์");
-    }finally{setSending(false);}
+    const txt=input.trim();if(!txt)return;
+    setInput("");
+    await addDoc(collection(db,"voiceRooms",roomId,"chat"),{
+      author:user.name,init:user.init,text:txt,t:serverTimestamp()
+    });
   }
 
   return(
@@ -350,127 +338,129 @@ function RoomChat({roomId,user}){
         <div ref={endRef}/>
       </div>
       <div style={{display:"flex",gap:7}}>
-        <input value={input} disabled={sending} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="พิมพ์ข้อความ..."
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="พิมพ์ข้อความ..."
           style={{flex:1,background:T.surface,border:"1px solid "+T.border,borderRadius:20,padding:"7px 12px",fontSize:13,outline:"none",color:T.text,fontFamily:"inherit"}}
           onFocus={e=>e.target.style.borderColor=T.borderHi} onBlur={e=>e.target.style.borderColor=T.border}/>
-        <button onClick={send} disabled={sending} style={{width:34,height:34,borderRadius:"50%",background:T.brandGrad,border:"none",color:"#fff",cursor:sending?"not-allowed":"pointer",opacity:sending?0.55:1,fontSize:15,fontFamily:"inherit"}}>↑</button>
+        <button onClick={send} style={{width:34,height:34,borderRadius:"50%",background:T.brandGrad,border:"none",color:"#fff",cursor:"pointer",fontSize:15,fontFamily:"inherit"}}>↑</button>
       </div>
-      {chatError&&<div style={{fontSize:11,color:T.red,marginTop:7}}>{chatError}</div>}
     </div>
   );
 }
 
 // ── LiveKit Voice Hook ───────────────────────────────────
-function useVoiceRoom(roomName, identity, enabled, publishMicrophone=true){
+function useVoiceRoom(roomName, userName, enabled){
   const roomRef = useRef(null);
+  const trackRef = useRef(null);  // เก็บ audio track
+  const audioEls = useRef([]);    // เก็บ audio elements เพื่อ cleanup
   const [connected,setConnected]=useState(false);
   const [speaking,setSpeaking]=useState({});
-  const [micOn,setMicOn]=useState(false);
-  const [audioBlocked,setAudioBlocked]=useState(false);
+  const [micOn,setMicOn]=useState(true);
   const [error,setError]=useState("");
 
   useEffect(()=>{
-    if(!enabled||!roomName||!identity){
-      setConnected(false);setSpeaking({});setMicOn(false);setAudioBlocked(false);setError("");
-      return;
-    }
+    if(!enabled||!roomName||!userName)return;
     let room;
-    let cancelled=false;
-    const audioElements=[];
-    try{ room = new Room({audioCaptureDefaults:{echoCancellation:true,noiseSuppression:true}}); }
+    try{ room = new Room({
+      audioCaptureDefaults:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},
+      adaptiveStream:true,
+      dynacast:true,
+    }); }
     catch(e){ setError("ไม่รองรับ LiveKit"); return; }
     roomRef.current = room;
 
     async function connect(){
       try{
-        const res = await fetch(`/api/token?room=${encodeURIComponent(roomName)}&username=${encodeURIComponent(identity)}`);
-        if(!res.ok) throw new Error("Token error "+res.status);
+        const res = await fetch(`/api/token?room=${encodeURIComponent(roomName)}&username=${encodeURIComponent(userName)}`);
+        if(!res.ok) throw new Error("Token "+res.status);
         const data = await res.json();
-        if(!data.token||!data.url) throw new Error("Invalid token response");
+        if(!data.token||!data.url) throw new Error("Invalid token");
         await room.connect(data.url, data.token);
-        if(publishMicrophone){
-          try{
-            // ให้ LiveKit สร้างและเผยแพร่แทร็กไมค์เอง เพื่อให้ปุ่ม mute/unmute ควบคุมแทร็กเดียวกัน
-            await room.localParticipant.setMicrophoneEnabled(true);
-            if(!cancelled)setMicOn(true);
-          }catch(micError){
-            console.error("Microphone:",micError);
-            if(!cancelled){
-              setMicOn(false);
-              setError("เปิดไมโครโฟนไม่ได้ — อนุญาตสิทธิ์ไมค์ในเบราว์เซอร์แล้วลองอีกครั้ง");
-            }
-          }
+
+        // สร้างและ publish audio track
+        try{
+          const track = await createLocalAudioTrack({
+            echoCancellation:true,
+            noiseSuppression:true,
+            autoGainControl:true,
+          });
+          trackRef.current = track;
+          await room.localParticipant.publishTrack(track);
+          setMicOn(true);
+        }catch(e2){
+          console.warn("Mic unavailable:",e2);
+          setMicOn(false);
         }
-        if(!cancelled)setConnected(true);
+        setConnected(true);
+        setError("");
       }catch(e){
-        console.error("LiveKit:",e);
-        if(!cancelled)setError("เชื่อมต่อเสียงไม่สำเร็จ: "+e.message);
+        setError("เชื่อมต่อเสียงไม่สำเร็จ");
+        console.error("LiveKit connect error:",e);
       }
     }
 
+    // รับฟังคนพูด
     room.on(RoomEvent.ActiveSpeakersChanged,()=>{
       const sp={};
-      room.activeSpeakers.forEach(p=>{sp[p.identity]=true;});
-      setSpeaking({...sp});
+      room.activeSpeakers.forEach(p=>{ sp[p.identity]=true; });
+      setSpeaking(prev=>({...prev,...sp}));
     });
-    room.on(RoomEvent.AudioPlaybackStatusChanged,(playing)=>{
-      if(!cancelled)setAudioBlocked(!playing);
-    });
-    room.on(RoomEvent.TrackSubscribed,(track)=>{
+
+    // เล่นเสียงจากคนอื่น
+    room.on(RoomEvent.TrackSubscribed,(track,pub,participant)=>{
       if(track.kind===Track.Kind.Audio){
-        const el=track.attach();
+        const el = track.attach();
         el.style.display="none";
+        el.autoplay=true;
         document.body.appendChild(el);
-        audioElements.push(el);
+        audioEls.current.push(el);
       }
     });
-    room.on(RoomEvent.TrackUnsubscribed,(track)=>{track.detach().forEach(el=>el.remove());});
+
+    room.on(RoomEvent.TrackUnsubscribed,(track)=>{
+      track.detach().forEach(el=>{ el.remove(); audioEls.current=audioEls.current.filter(e=>e!==el); });
+    });
 
     connect();
-    return()=>{
-      cancelled=true;
-      audioElements.forEach(el=>el.remove());
-      room.disconnect();
-      if(roomRef.current===room)roomRef.current=null;
-      setConnected(false);setSpeaking({});setMicOn(false);setAudioBlocked(false);
-    };
-  },[enabled,roomName,identity,publishMicrophone]);
 
+    return()=>{
+      // Cleanup
+      if(trackRef.current){ try{ trackRef.current.stop(); }catch(e){} trackRef.current=null; }
+      audioEls.current.forEach(el=>{ try{ el.remove(); }catch(e){} });
+      audioEls.current=[];
+      room.removeAllListeners();
+      room.disconnect();
+      roomRef.current=null;
+      setConnected(false);
+      setSpeaking({});
+      setMicOn(true);
+    };
+  },[enabled,roomName,userName]);
+
+  // ── toggle ไมค์ ──────────────────────────────────────
   async function toggleMic(){
-    const room=roomRef.current;
-    if(!room?.localParticipant||!connected){
-      setError("กำลังเชื่อมต่อห้องเสียง รอสักครู่แล้วลองใหม่");
-      return null;
-    }
+    if(!roomRef.current?.localParticipant)return;
     const next=!micOn;
     try{
-      await room.localParticipant.setMicrophoneEnabled(next);
-      setMicOn(next);setError("");
-      return next;
-    }catch(e){
-      console.error("Toggle microphone:",e);
-      setError("เปลี่ยนสถานะไมโครโฟนไม่สำเร็จ — ตรวจสอบสิทธิ์ไมค์แล้วลองใหม่");
-      return null;
-    }
-  }
-
-  async function startAudio(){
-    const room=roomRef.current;
-    if(!room)return false;
-    try{
-      await room.startAudio();
-      setAudioBlocked(false);setError("");
-      return true;
-    }catch(e){
-      console.error("Start audio:",e);
-      setError("เปิดเสียงจากห้องไม่ได้ ลองกดปุ่มเปิดเสียงอีกครั้ง");
-      return false;
-    }
+      if(next){
+        // เปิดไมค์: สร้าง track ใหม่ถ้าไม่มี
+        if(!trackRef.current){
+          const track=await createLocalAudioTrack({echoCancellation:true,noiseSuppression:true});
+          trackRef.current=track;
+          await roomRef.current.localParticipant.publishTrack(track);
+        } else {
+          await roomRef.current.localParticipant.setMicrophoneEnabled(true);
+        }
+      } else {
+        // ปิดไมค์
+        await roomRef.current.localParticipant.setMicrophoneEnabled(false);
+      }
+      setMicOn(next);
+    }catch(e){ console.error("toggleMic error:",e); }
   }
 
   function isSpeaking(identity){ return !!speaking[identity]; }
 
-  return{connected,micOn,toggleMic,isSpeaking,voiceError:error,audioBlocked,startAudio};
+  return{connected,micOn,toggleMic,isSpeaking,voiceError:error};
 }
 
 // ── Error Boundary สำหรับ Voice Rooms ───────────────────────
@@ -491,6 +481,8 @@ function VoiceErrorBoundary({children}){
 function VoiceRoomsPage({user}){
   const [rooms,setRooms]=useState([]);
   const [inRoomId,setInRoomId]=useState(null);
+  const [inRoomName,setInRoomName]=useState("");
+  const [showPL,setShowPL]=useState(false);
   const [newName,setNewName]=useState("");
   const [creating,setCreating]=useState(false);
   const [nameErr,setNameErr]=useState("");
@@ -499,8 +491,8 @@ function VoiceRoomsPage({user}){
   const inRoom=rooms.find(r=>r.id===inRoomId);
   const isHost=inRoom&&inRoom.hostInit===user.init;
   // LiveKit voice hook
-  const {connected,micOn,toggleMic,isSpeaking,voiceError,audioBlocked,startAudio}=useVoiceRoom(
-    inRoomId, user.init, !!inRoomId, !user.isGuest
+  const {connected,micOn,toggleMic,isSpeaking,voiceError}=useVoiceRoom(
+    inRoomName, user.name, !!inRoomId && !user.isGuest
   );
 
   useEffect(()=>{
@@ -519,7 +511,7 @@ function VoiceRoomsPage({user}){
         members:[...members,{init:user.init,name:user.name,mic:true}]
       });
     }
-    setInRoomId(r.id);
+    setInRoomId(r.id);setShowPL(false);
   }
 
   async function leave(){
@@ -527,7 +519,13 @@ function VoiceRoomsPage({user}){
     const members=(Array.isArray(inRoom.members)?inRoom.members:[]).filter(m=>m.init!==user.init);
     if(members.length===0){await deleteDoc(doc(db,"voiceRooms",inRoomId));}
     else{await updateDoc(doc(db,"voiceRooms",inRoomId),{members});}
-    setInRoomId(null);
+    setInRoomId(null);setInRoomName("");setShowPL(false);
+  }
+
+  async function hostToggleMic(init){
+    if(!isHost)return;
+    const members=(Array.isArray(inRoom.members)?inRoom.members:[]).map(m=>m.init===init?{...m,mic:!m.mic}:m);
+    await updateDoc(doc(db,"voiceRooms",inRoomId),{members});
   }
 
   async function kick(init){
@@ -563,19 +561,12 @@ function VoiceRoomsPage({user}){
 
   async function playSong(songId,startedAtMs){
     if(!inRoom||!isHost)return;
+    // ใช้ Date.now() เป็น ms timestamp จริงๆ เพื่อ sync เพลงได้แม่นยำ
+    const now = songId ? (startedAtMs||Date.now()) : null;
     await updateDoc(doc(db,"voiceRooms",inRoomId),{
       nowPlaying:songId||null,
-      // เวลาเริ่มต้องถูกบันทึกทุกครั้ง เพื่อให้คนที่เข้าทีหลัง sync เพลงได้
-      songStartedAt:songId?(startedAtMs||Date.now()):null
+      songStartedAt:now,
     });
-  }
-
-  async function toggleMyMic(){
-    const next=await toggleMic();
-    if(next===null||!inRoom)return;
-    const members=(Array.isArray(inRoom.members)?inRoom.members:[]).map(m=>m.init===user.init?{...m,mic:next}:m);
-    try{await updateDoc(doc(db,"voiceRooms",inRoomId),{members});}
-    catch(err){console.error("Sync microphone status:",err);}
   }
 
 
@@ -597,9 +588,9 @@ function VoiceRoomsPage({user}){
                 {voiceError&&<div style={{fontSize:11,color:T.red,marginTop:3}}>⚠️ {voiceError}</div>}
               </div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                {audioBlocked&&<Btn onClick={startAudio} v="primary" sz="sm">🔊 เปิดเสียง</Btn>}
+                <Btn onClick={()=>setShowPL(!showPL)} v={showPL?"primary":"ghost"} sz="sm">🎵 Playlist</Btn>
                 {!user.isGuest&&(
-                  <Btn onClick={toggleMyMic} disabled={!connected} v={micOn?"ghost":"danger"} sz="sm">{micOn?"🎙️":"🔇"}</Btn>
+                  <Btn onClick={toggleMic} v={micOn?"ghost":"danger"} sz="sm">{micOn?"🎙️":"🔇"}</Btn>
                 )}
                 <Btn onClick={leave} v="danger" sz="sm">📵</Btn>
               </div>
@@ -609,23 +600,23 @@ function VoiceRoomsPage({user}){
             <div style={{display:"flex",gap:12,flexWrap:"wrap",paddingBottom:16}}>
               {(Array.isArray(inRoom.members)?inRoom.members:[]).map((m,i)=>{
                 const isMe=m.init===user.init;
-                const memberIsSpeaking=isSpeaking(m.init);
                 return(
                   <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,position:"relative"}}>
                     {isHost&&!isMe&&(
                       <div style={{position:"absolute",top:-6,right:-4,display:"flex",gap:2,zIndex:2}}>
+                        <button onClick={()=>hostToggleMic(m.init)} style={{width:16,height:16,borderRadius:"50%",background:m.mic?"#1A3A2A":"#2A2A1A",border:"1px solid "+T.border,cursor:"pointer",fontSize:8,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>{m.mic?"🎙":"🔇"}</button>
                         <button onClick={()=>kick(m.init)} style={{width:16,height:16,borderRadius:"50%",background:T.redBg,border:"1px solid rgba(244,63,94,.3)",cursor:"pointer",fontSize:8,display:"flex",alignItems:"center",justifyContent:"center",color:T.red,fontFamily:"inherit"}}>✕</button>
                       </div>
                     )}
                     <div style={{padding:3,borderRadius:"50%",
-                      border:"2.5px solid "+(memberIsSpeaking?T.green:T.border),
-                      boxShadow:memberIsSpeaking?"0 0 16px rgba(16,185,129,.5)":"none",
+                      border:"2.5px solid "+(isSpeaking?T.green:T.border),
+                      boxShadow:isSpeaking?"0 0 16px rgba(16,185,129,.5)":"none",
                       transition:"all .2s"}}>
                       <Av init={m.init} bg={T.card} tc={T.brand2} grad={isMe} isSelf={isMe} size={48}/>
                     </div>
                     <div style={{fontSize:11,color:T.brand2,fontWeight:700,maxWidth:56,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isMe?"คุณ":m.name}</div>
                     {/* ไมค์ animation เมื่อพูด */}
-                    {memberIsSpeaking?(
+                    {isSpeaking?(
                       <div style={{display:"flex",alignItems:"flex-end",gap:1.5,height:14}}>
                         {[3,6,9,6,3].map((h,j)=>(
                           <div key={j} style={{width:2.5,borderRadius:2,background:T.green,
@@ -641,8 +632,8 @@ function VoiceRoomsPage({user}){
               })}
             </div>
           </div>
-          <div style={{padding:"0 16px 16px"}}><YoutubePlaylist playlist={inRoom.playlist} nowPlaying={inRoom.nowPlaying||null} songStartedAt={inRoom.songStartedAt||null} onAdd={addSong} onRemove={removeSong} onPlay={playSong} isHost={isHost}/></div>
-          <div style={{padding:"0 16px 16px"}}><RoomChat roomId={inRoomId} user={user}/></div>
+          {showPL&&<div style={{padding:"0 16px 16px"}}><YoutubePlaylist playlist={inRoom.playlist} nowPlaying={inRoom.nowPlaying||null} songStartedAt={inRoom.songStartedAt||null} onAdd={addSong} onRemove={removeSong} onPlay={playSong} isHost={isHost}/></div>}
+          <div style={{padding:"0 16px 16px",borderTop:"1px solid "+T.border}}><RoomChat roomId={inRoomId} user={user}/></div>
         </Card>
       )}
 
