@@ -304,19 +304,38 @@ function RoomChat({roomId,user}){
   const [msgs,setMsgs]=useState([]);
   const [input,setInput]=useState("");
   const endRef=useRef();
+
   useEffect(()=>{
+    if(!roomId)return;
     const q=query(collection(db,"voiceRooms",roomId,"chat"),orderBy("t","asc"));
-    const unsub=onSnapshot(q,snap=>setMsgs(snap.docs.map(d=>({id:d.id,...d.data()}))));
+    const unsub=onSnapshot(q,
+      snap=>setMsgs(snap.docs.map(d=>({id:d.id,...d.data()}))),
+      err=>console.error("chat snapshot error:",err)
+    );
     return unsub;
   },[roomId]);
+
   useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth"});},[msgs]);
 
   async function send(){
-    const txt=input.trim();if(!txt)return;
+    const txt=input.trim();
+    if(!txt||!roomId)return;
+    // Optimistic update — แสดงข้อความทันทีก่อน Firebase ตอบกลับ
+    const tempMsg={id:"tmp-"+Date.now(),author:user.name,init:user.init,text:txt,t:{toMillis:()=>Date.now()}};
+    setMsgs(prev=>[...prev,tempMsg]);
     setInput("");
-    await addDoc(collection(db,"voiceRooms",roomId,"chat"),{
-      author:user.name,init:user.init,text:txt,t:serverTimestamp()
-    });
+    try{
+      await addDoc(collection(db,"voiceRooms",roomId,"chat"),{
+        author:user.name,
+        init:user.init||user.name.slice(0,2).toUpperCase(),
+        text:txt,
+        t:serverTimestamp()
+      });
+    }catch(e){
+      console.error("send chat error:",e);
+      // ถ้า Firebase ส่งไม่ได้ ลบ temp message ออก
+      setMsgs(prev=>prev.filter(m=>m.id!==tempMsg.id));
+    }
   }
 
   return(
@@ -337,11 +356,22 @@ function RoomChat({roomId,user}){
         {msgs.length===0&&<div style={{fontSize:12,color:T.muted,textAlign:"center",padding:"10px 0"}}>ยังไม่มีข้อความ — พิมพ์คุยได้เลย</div>}
         <div ref={endRef}/>
       </div>
-      <div style={{display:"flex",gap:7}}>
-        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="พิมพ์ข้อความ..."
-          style={{flex:1,background:T.surface,border:"1px solid "+T.border,borderRadius:20,padding:"7px 12px",fontSize:13,outline:"none",color:T.text,fontFamily:"inherit"}}
-          onFocus={e=>e.target.style.borderColor=T.borderHi} onBlur={e=>e.target.style.borderColor=T.border}/>
-        <button onClick={send} style={{width:34,height:34,borderRadius:"50%",background:T.brandGrad,border:"none",color:"#fff",cursor:"pointer",fontSize:15,fontFamily:"inherit"}}>↑</button>
+      <div style={{display:"flex",gap:7,alignItems:"center"}}>
+        <input
+          value={input}
+          onChange={e=>setInput(e.target.value)}
+          onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}}
+          placeholder="พิมพ์ข้อความ... (Enter เพื่อส่ง)"
+          style={{flex:1,background:T.surface,border:"1.5px solid "+T.border,borderRadius:20,padding:"8px 14px",fontSize:13,outline:"none",color:T.text,fontFamily:"inherit",transition:"border .15s"}}
+          onFocus={e=>e.target.style.borderColor=T.borderHi}
+          onBlur={e=>e.target.style.borderColor=T.border}
+        />
+        <button
+          onClick={send}
+          disabled={!input.trim()}
+          style={{width:36,height:36,borderRadius:"50%",background:input.trim()?T.brandGrad:"#333",border:"none",color:"#fff",cursor:input.trim()?"pointer":"default",fontSize:16,fontFamily:"inherit",flexShrink:0,transition:"background .15s"}}>
+          ↑
+        </button>
       </div>
     </div>
   );
@@ -376,15 +406,14 @@ function useVoiceRoom(roomName, userName, enabled){
         if(!data.token||!data.url) throw new Error("Invalid token");
         await room.connect(data.url, data.token);
 
-        // สร้างและ publish audio track
+        // enable microphone ผ่าน LiveKit built-in method
         try{
-          const track = await createLocalAudioTrack({
-            echoCancellation:true,
-            noiseSuppression:true,
-            autoGainControl:true,
-          });
-          trackRef.current = track;
-          await room.localParticipant.publishTrack(track);
+          await room.localParticipant.setMicrophoneEnabled(true);
+          // เก็บ track ref
+          const pubs = room.localParticipant.getTrackPublications();
+          for(const pub of pubs.values()){
+            if(pub.track && pub.kind==="audio") trackRef.current = pub.track;
+          }
           setMicOn(true);
         }catch(e2){
           console.warn("Mic unavailable:",e2);
@@ -423,12 +452,10 @@ function useVoiceRoom(roomName, userName, enabled){
     connect();
 
     return()=>{
-      // Cleanup
-      if(trackRef.current){ try{ trackRef.current.stop(); }catch(e){} trackRef.current=null; }
-      audioEls.current.forEach(el=>{ try{ el.remove(); }catch(e){} });
+      audioEls.current.forEach(el=>{ try{ el.srcObject=null; el.remove(); }catch(e){} });
       audioEls.current=[];
-      room.removeAllListeners();
-      room.disconnect();
+      trackRef.current=null;
+      try{ room.removeAllListeners(); room.disconnect(); }catch(e){}
       roomRef.current=null;
       setConnected(false);
       setSpeaking({});
@@ -441,21 +468,11 @@ function useVoiceRoom(roomName, userName, enabled){
     if(!roomRef.current?.localParticipant)return;
     const next=!micOn;
     try{
-      if(next){
-        // เปิดไมค์: สร้าง track ใหม่ถ้าไม่มี
-        if(!trackRef.current){
-          const track=await createLocalAudioTrack({echoCancellation:true,noiseSuppression:true});
-          trackRef.current=track;
-          await roomRef.current.localParticipant.publishTrack(track);
-        } else {
-          await roomRef.current.localParticipant.setMicrophoneEnabled(true);
-        }
-      } else {
-        // ปิดไมค์
-        await roomRef.current.localParticipant.setMicrophoneEnabled(false);
-      }
+      await roomRef.current.localParticipant.setMicrophoneEnabled(next);
       setMicOn(next);
-    }catch(e){ console.error("toggleMic error:",e); }
+    }catch(e){
+      console.error("toggleMic error:",e);
+    }
   }
 
   function isSpeaking(identity){ return !!speaking[identity]; }
