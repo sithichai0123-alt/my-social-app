@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, onSnapshot, orderBy, query, doc, updateDoc, increment, serverTimestamp, deleteDoc } from "firebase/firestore";
-import { Room, RoomEvent, Track, createLocalAudioTrack } from "livekit-client";
 
 // ── Firebase Config ──────────────────────────────────────
 const firebaseConfig = {
@@ -99,38 +98,72 @@ function ImgGrid({images,mediaTypes}){
 
 // ── Auth ──────────────────────────────────────────────────
 function AuthPage({onLogin}){
+  const [mode,setMode]=useState("main");
+  const [gName,setGName]=useState("");
+  const [gErr,setGErr]=useState("");
   const [name,setName]=useState("");
   const [err,setErr]=useState("");
+
   function loginGoogle(){
-    // ดึงชื่อที่เคยแก้ไว้จาก localStorage ถ้ามี
-    const savedName = ls.get("displayName","สิทธิชัย");
-    const savedInit = savedName.slice(0,2).toUpperCase();
-    const u={name:savedName,email:"sittichai@gmail.com",avatar:"",isGuest:false,init:savedInit};
+    if(!gName.trim()){setGErr("ใส่ชื่อก่อนนะ");return;}
+    const n=gName.trim();
+    const init=n.slice(0,2).toUpperCase();
+    ls.set("displayName",n);
+    const u={name:n,email:"google@warmly.app",avatar:"",isGuest:false,init,provider:"google"};
     ls.set("user",u);
     onLogin(u);
   }
-  function loginGuest(){if(!name.trim()){setErr("ใส่ชื่อก่อนนะ");return;}const init=name.trim().slice(0,2).toUpperCase();const u={name:name.trim(),email:"",avatar:"",isGuest:true,init};ls.set("user",u);onLogin(u);}
+  function loginGuest(){
+    if(!name.trim()){setErr("ใส่ชื่อก่อนนะ");return;}
+    const n=name.trim();
+    const init=n.slice(0,2).toUpperCase();
+    const u={name:n,email:"",avatar:"",isGuest:true,init,provider:"guest"};
+    ls.set("user",u);
+    onLogin(u);
+  }
   return(
     <div style={{minHeight:"100vh",background:T.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24}}>
       <style>{`@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}} @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}} @keyframes mic-wave{0%{height:3px}100%{height:14px}}`}</style>
-      <div style={{textAlign:"center",marginBottom:36}}>
+      <div style={{textAlign:"center",marginBottom:32}}>
         <div style={{width:72,height:72,borderRadius:22,background:T.brandGrad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:36,margin:"0 auto 16px",boxShadow:"0 8px 32px rgba(124,92,252,.5)",animation:"float 3s ease-in-out infinite"}}>💜</div>
         <div style={{fontSize:36,fontWeight:800,color:T.text,letterSpacing:-1}}>Warmly</div>
         <div style={{fontSize:15,color:T.sub,marginTop:8,lineHeight:1.6}}>พื้นที่อบอุ่น สำหรับทุกคน<br/>หาเพื่อน คุยเล่น ไม่เหงา</div>
       </div>
       <div style={{width:"100%",maxWidth:360}}>
-        <button onClick={loginGoogle} style={{width:"100%",padding:"14px 20px",borderRadius:16,border:"1px solid "+T.border,background:T.card,color:T.text,cursor:"pointer",fontSize:15,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:12,marginBottom:16,fontFamily:"inherit"}} onMouseOver={e=>e.currentTarget.style.borderColor=T.borderHi} onMouseOut={e=>e.currentTarget.style.borderColor=T.border}>
-          <span style={{fontSize:22}}>🔵</span> เข้าสู่ระบบด้วย Google
-        </button>
-        <div style={{display:"flex",alignItems:"center",gap:12,margin:"16px 0"}}>
-          <div style={{flex:1,height:1,background:T.border}}/><span style={{fontSize:12,color:T.muted}}>หรือ</span><div style={{flex:1,height:1,background:T.border}}/>
-        </div>
-        <div style={{background:T.surface,border:"1px solid "+T.border,borderRadius:16,padding:"20px 18px"}}>
-          <div style={{fontSize:13,color:T.sub,marginBottom:12,textAlign:"center"}}>เข้าแบบผู้เยี่ยมชม 👋<br/>ไม่ต้องสมัคร</div>
-          <Input value={name} onChange={e=>{setName(e.target.value);setErr("");}} placeholder="ชื่อที่ต้องการแสดง..." onKeyDown={e=>e.key==="Enter"&&loginGuest()} style={{marginBottom:10}}/>
-          {err&&<div style={{fontSize:12,color:T.red,marginBottom:10,fontWeight:500}}>{err}</div>}
-          <Btn onClick={loginGuest} v="outline" sz="md" full>เข้าแบบผู้เยี่ยมชม</Btn>
-        </div>
+        {mode==="main"&&(<>
+          <button onClick={()=>setMode("google")}
+            style={{width:"100%",padding:"14px 20px",borderRadius:16,border:"1px solid "+T.border,background:T.card,color:T.text,cursor:"pointer",fontSize:15,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:12,marginBottom:16,fontFamily:"inherit"}}
+            onMouseOver={e=>e.currentTarget.style.borderColor=T.borderHi}
+            onMouseOut={e=>e.currentTarget.style.borderColor=T.border}>
+            <span style={{fontSize:22}}>🔵</span> เข้าสู่ระบบด้วย Google
+          </button>
+          <div style={{display:"flex",alignItems:"center",gap:12,margin:"16px 0"}}>
+            <div style={{flex:1,height:1,background:T.border}}/><span style={{fontSize:12,color:T.muted}}>หรือ</span><div style={{flex:1,height:1,background:T.border}}/>
+          </div>
+          <div style={{background:T.surface,border:"1px solid "+T.border,borderRadius:16,padding:"20px 18px"}}>
+            <div style={{fontSize:13,color:T.sub,marginBottom:12,textAlign:"center"}}>เข้าแบบผู้เยี่ยมชม 👋<br/>ไม่ต้องสมัคร</div>
+            <Input value={name} onChange={e=>{setName(e.target.value);setErr("");}} placeholder="ชื่อที่ต้องการแสดง..." onKeyDown={e=>e.key==="Enter"&&loginGuest()} style={{marginBottom:10}}/>
+            {err&&<div style={{fontSize:12,color:T.red,marginBottom:10,fontWeight:500}}>{err}</div>}
+            <Btn onClick={loginGuest} v="outline" sz="md" full>เข้าแบบผู้เยี่ยมชม</Btn>
+          </div>
+        </>)}
+        {mode==="google"&&(
+          <div style={{background:T.surface,border:"1px solid "+T.borderHi,borderRadius:18,padding:"24px 20px"}}>
+            <div style={{textAlign:"center",marginBottom:18}}>
+              <span style={{fontSize:32}}>🔵</span>
+              <div style={{fontSize:16,fontWeight:700,color:T.text,marginTop:8}}>เข้าด้วย Google</div>
+              <div style={{fontSize:13,color:T.muted,marginTop:5}}>ใส่ชื่อที่ต้องการแสดงในแอป</div>
+            </div>
+            <Input value={gName} onChange={e=>{setGName(e.target.value);setGErr("");}}
+              placeholder="ชื่อของคุณ..." onKeyDown={e=>e.key==="Enter"&&loginGoogle()} style={{marginBottom:10}}/>
+            {gErr&&<div style={{fontSize:12,color:T.red,marginBottom:10,fontWeight:500}}>{gErr}</div>}
+            <Btn onClick={loginGoogle} v="primary" sz="md" full style={{marginBottom:10}}>เข้าสู่ระบบ ✨</Btn>
+            <button onClick={()=>{setMode("main");setGErr("");}}
+              style={{width:"100%",background:"transparent",border:"none",color:T.muted,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:"6px 0"}}>
+              ← กลับ
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -377,11 +410,10 @@ function RoomChat({roomId,user}){
   );
 }
 
-// ── LiveKit Voice Hook ───────────────────────────────────
+// ── LiveKit Voice Hook (v1 API) ─────────────────────────
 function useVoiceRoom(roomName, userName, enabled){
   const roomRef = useRef(null);
-  const trackRef = useRef(null);  // เก็บ audio track
-  const audioEls = useRef([]);    // เก็บ audio elements เพื่อ cleanup
+  const audioEls = useRef([]);
   const [connected,setConnected]=useState(false);
   const [speaking,setSpeaking]=useState({});
   const [micOn,setMicOn]=useState(true);
@@ -389,52 +421,49 @@ function useVoiceRoom(roomName, userName, enabled){
 
   useEffect(()=>{
     if(!enabled||!roomName||!userName)return;
-    let room;
-    try{ room = new Room({
-      audioCaptureDefaults:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},
-      adaptiveStream:true,
-      dynacast:true,
-    }); }
-    catch(e){ setError("ไม่รองรับ LiveKit"); return; }
+
+    // LiveKit v1 ใช้ Room แบบนี้
+    const { Room, RoomEvent, Track } = require("livekit-client");
+    const room = new Room({
+      adaptiveStream: true,
+      dynacast: true,
+    });
     roomRef.current = room;
 
     async function connect(){
       try{
-        const res = await fetch(`/api/token?room=${encodeURIComponent(roomName)}&username=${encodeURIComponent(userName)}`);
+        const res = await fetch(
+          `/api/token?room=${encodeURIComponent(roomName)}&username=${encodeURIComponent(userName)}`
+        );
         if(!res.ok) throw new Error("Token "+res.status);
         const data = await res.json();
         if(!data.token||!data.url) throw new Error("Invalid token");
+
         await room.connect(data.url, data.token);
 
-        // enable microphone ผ่าน LiveKit built-in method
-        try{
-          await room.localParticipant.setMicrophoneEnabled(true);
-          // เก็บ track ref
-          const pubs = room.localParticipant.getTrackPublications();
-          for(const pub of pubs.values()){
-            if(pub.track && pub.kind==="audio") trackRef.current = pub.track;
-          }
-          setMicOn(true);
-        }catch(e2){
-          console.warn("Mic unavailable:",e2);
-          setMicOn(false);
-        }
+        // เปิดไมค์ด้วย v1 API
+        await room.localParticipant.enableCameraAndMicrophone();
+        // ปิดกล้อง เปิดแค่ไมค์
+        await room.localParticipant.setCameraEnabled(false);
+        await room.localParticipant.setMicrophoneEnabled(true);
+
         setConnected(true);
+        setMicOn(true);
         setError("");
       }catch(e){
-        setError("เชื่อมต่อเสียงไม่สำเร็จ");
         console.error("LiveKit connect error:",e);
+        setError("เชื่อมต่อเสียงไม่สำเร็จ");
       }
     }
 
-    // รับฟังคนพูด
-    room.on(RoomEvent.ActiveSpeakersChanged,()=>{
+    // คนพูดอยู่
+    room.on(RoomEvent.ActiveSpeakersChanged, speakers=>{
       const sp={};
-      room.activeSpeakers.forEach(p=>{ sp[p.identity]=true; });
-      setSpeaking(prev=>({...prev,...sp}));
+      speakers.forEach(p=>{ sp[p.identity]=true; });
+      setSpeaking(sp);
     });
 
-    // เล่นเสียงจากคนอื่น
+    // รับ track จากคนอื่น → เล่นเสียง
     room.on(RoomEvent.TrackSubscribed,(track,pub,participant)=>{
       if(track.kind===Track.Kind.Audio){
         const el = track.attach();
@@ -446,7 +475,9 @@ function useVoiceRoom(roomName, userName, enabled){
     });
 
     room.on(RoomEvent.TrackUnsubscribed,(track)=>{
-      track.detach().forEach(el=>{ el.remove(); audioEls.current=audioEls.current.filter(e=>e!==el); });
+      const els = track.detach();
+      els.forEach(el=>{ el.remove(); });
+      audioEls.current = audioEls.current.filter(e=>!els.includes(e));
     });
 
     connect();
@@ -454,7 +485,6 @@ function useVoiceRoom(roomName, userName, enabled){
     return()=>{
       audioEls.current.forEach(el=>{ try{ el.srcObject=null; el.remove(); }catch(e){} });
       audioEls.current=[];
-      trackRef.current=null;
       try{ room.removeAllListeners(); room.disconnect(); }catch(e){}
       roomRef.current=null;
       setConnected(false);
@@ -463,16 +493,13 @@ function useVoiceRoom(roomName, userName, enabled){
     };
   },[enabled,roomName,userName]);
 
-  // ── toggle ไมค์ ──────────────────────────────────────
   async function toggleMic(){
     if(!roomRef.current?.localParticipant)return;
-    const next=!micOn;
     try{
+      const next=!micOn;
       await roomRef.current.localParticipant.setMicrophoneEnabled(next);
       setMicOn(next);
-    }catch(e){
-      console.error("toggleMic error:",e);
-    }
+    }catch(e){ console.error("toggleMic:",e); }
   }
 
   function isSpeaking(identity){ return !!speaking[identity]; }
