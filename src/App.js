@@ -1,6 +1,8 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, Component, createContext, useContext } from "react";
+import { Room, RoomEvent, Track } from "livekit-client";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged, signOut } from "firebase/auth";
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, addDoc, onSnapshot, orderBy, query, doc, updateDoc, increment, serverTimestamp, deleteDoc } from "firebase/firestore";
+import { getFirestore, collection, addDoc, onSnapshot, orderBy, query, doc, updateDoc, increment, serverTimestamp, deleteDoc, getDocs, setDoc, getDoc, where, limit, arrayUnion } from "firebase/firestore";
 
 // ── Firebase Config ──────────────────────────────────────
 const firebaseConfig = {
@@ -14,6 +16,7 @@ const firebaseConfig = {
 
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
+const auth = getAuth(firebaseApp);
 
 // ── Design Tokens ────────────────────────────────────────
 const T = {
@@ -31,6 +34,35 @@ const ls = {
   set:(k,v)=>{try{localStorage.setItem("wm_"+k,JSON.stringify(v));}catch{}},
   del:(k)=>{try{localStorage.removeItem("wm_"+k);}catch{}},
 };
+
+// ── ผู้ใช้ทั้งหมด (แชร์รูป/ชื่อให้ทุกคนเห็น) ─────────────
+const UsersCtx=createContext({});
+const ProfileCtx=createContext(null);
+
+// ย่อรูปก่อนเก็บ (Firestore จำกัด 1MB ต่อเอกสาร)
+function compressImage(file,max=160,q=0.72){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader();
+    r.onerror=reject;
+    r.onload=ev=>{
+      const img=new Image();
+      img.onerror=reject;
+      img.onload=()=>{
+        const sc=Math.min(1,max/Math.max(img.width,img.height));
+        const w=Math.max(1,Math.round(img.width*sc)),h=Math.max(1,Math.round(img.height*sc));
+        const c=document.createElement("canvas");c.width=w;c.height=h;
+        c.getContext("2d").drawImage(img,0,0,w,h);
+        resolve(c.toDataURL("image/jpeg",q));
+      };
+      img.src=ev.target.result;
+    };
+    r.readAsDataURL(file);
+  });
+}
+
+function saveMyProfile(patch){
+  return setDoc(doc(db,"users",getUid()),{...patch,lastSeen:serverTimestamp()},{merge:true});
+}
 
 // ── Static Data ───────────────────────────────────────────
 const FRIENDS=[
@@ -51,12 +83,14 @@ function ytEmbed(id){return`https://www.youtube.com/embed/${id}?autoplay=0&rel=0
 function timeAgo(ts){if(!ts)return"เมื่อกี้";const s=Math.floor((Date.now()-ts.toMillis())/1000);if(s<60)return"เมื่อกี้";if(s<3600)return Math.floor(s/60)+" นาทีที่แล้ว";if(s<86400)return Math.floor(s/3600)+" ชม.";return Math.floor(s/86400)+" วันที่แล้ว";}
 
 // ── Shared UI ─────────────────────────────────────────────
-function Av({init,bg,tc,size=40,online,grad,isSelf}){
+function Av({init,bg,tc,size=40,online,grad,isSelf,uid}){
+  const _users=useContext(UsersCtx);
+  const _u=uid?_users[uid]:null;
   // ถ้าเป็น avatar ของตัวเอง (isSelf) ให้ดึงรูปจาก localStorage
-  const selfImg = isSelf ? ls.get("avatarImg","") : "";
+  const selfImg = (_u&&(_u.avatar||_u.photo)) || (isSelf ? ls.get("avatarImg","") : "");
   return(<div style={{position:"relative",flexShrink:0}}>
     {selfImg
-      ? <img src={selfImg} alt={init} style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",display:"block",border:"2px solid "+(grad?T.brand:T.border)}}/>
+      ? <img src={selfImg} alt={init} referrerPolicy="no-referrer" style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",display:"block",border:"2px solid "+(grad?T.brand:T.border)}}/>
       : <div style={{width:size,height:size,borderRadius:"50%",background:grad?T.brandGrad:(bg||T.card),color:grad?"#fff":(tc||T.brand2),display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*.32,fontWeight:700,boxShadow:grad?"0 0 16px rgba(124,92,252,.5)":"none"}}>{init}</div>
     }
     {online&&<div style={{position:"absolute",bottom:1,right:1,width:Math.max(8,size*.2),height:Math.max(8,size*.2),borderRadius:"50%",background:T.green,border:"2px solid "+T.bg}}/>}
@@ -104,20 +138,37 @@ function AuthPage({onLogin}){
   const [name,setName]=useState("");
   const [err,setErr]=useState("");
 
-  function loginGoogle(){
-    if(!gName.trim()){setGErr("ใส่ชื่อก่อนนะ");return;}
-    const n=gName.trim();
-    const init=n.slice(0,2).toUpperCase();
-    ls.set("displayName",n);
-    const u={name:n,email:"google@warmly.app",avatar:"",isGuest:false,init,provider:"google"};
-    ls.set("user",u);
-    onLogin(u);
+  const [busy,setBusy]=useState(false);
+  async function loginGoogle(){
+    if(busy)return;
+    setBusy(true);setGErr("");
+    const provider=new GoogleAuthProvider();
+    provider.setCustomParameters({prompt:"select_account"});
+    try{
+      await signInWithPopup(auth,provider);
+      // onAuthStateChanged ใน App จะตั้งค่าผู้ใช้ให้เอง
+    }catch(e){
+      const c=(e&&e.code)||"";
+      if(c==="auth/popup-blocked"||c==="auth/operation-not-supported-in-this-environment"){
+        try{await signInWithRedirect(auth,provider);return;}
+        catch(e2){setGErr("เข้า Google ไม่ได้: "+(e2.code||e2.message));}
+      }else if(c==="auth/popup-closed-by-user"||c==="auth/cancelled-popup-request"){
+        // ผู้ใช้ปิดหน้าต่างเอง
+      }else if(c==="auth/unauthorized-domain"){
+        setGErr("โดเมนนี้ยังไม่ได้อนุญาตใน Firebase (Authentication → Settings → Authorized domains)");
+      }else if(c==="auth/operation-not-allowed"){
+        setGErr("ยังไม่ได้เปิด Google Sign-in ใน Firebase Authentication");
+      }else{
+        setGErr("เข้า Google ไม่ได้: "+(c||(e&&e.message)));
+      }
+    }
+    setBusy(false);
   }
   function loginGuest(){
     if(!name.trim()){setErr("ใส่ชื่อก่อนนะ");return;}
     const n=name.trim();
     const init=n.slice(0,2).toUpperCase();
-    const u={name:n,email:"",avatar:"",isGuest:true,init,provider:"guest"};
+    const u={name:n,email:"",avatar:"",isGuest:true,init,provider:"guest",uid:getUid()};
     ls.set("user",u);
     onLogin(u);
   }
@@ -131,12 +182,13 @@ function AuthPage({onLogin}){
       </div>
       <div style={{width:"100%",maxWidth:360}}>
         {mode==="main"&&(<>
-          <button onClick={()=>setMode("google")}
+          <button onClick={loginGoogle} disabled={busy}
             style={{width:"100%",padding:"14px 20px",borderRadius:16,border:"1px solid "+T.border,background:T.card,color:T.text,cursor:"pointer",fontSize:15,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:12,marginBottom:16,fontFamily:"inherit"}}
             onMouseOver={e=>e.currentTarget.style.borderColor=T.borderHi}
             onMouseOut={e=>e.currentTarget.style.borderColor=T.border}>
-            <span style={{fontSize:22}}>🔵</span> เข้าสู่ระบบด้วย Google
+            <span style={{fontSize:22}}>🔵</span> {busy?"กำลังเชื่อมต่อ Google...":"เข้าสู่ระบบด้วย Google"}
           </button>
+          {gErr&&<div style={{fontSize:12,color:T.red,marginBottom:12,textAlign:"center",lineHeight:1.5}}>{gErr}</div>}
           <div style={{display:"flex",alignItems:"center",gap:12,margin:"16px 0"}}>
             <div style={{flex:1,height:1,background:T.border}}/><span style={{fontSize:12,color:T.muted}}>หรือ</span><div style={{flex:1,height:1,background:T.border}}/>
           </div>
@@ -147,23 +199,6 @@ function AuthPage({onLogin}){
             <Btn onClick={loginGuest} v="outline" sz="md" full>เข้าแบบผู้เยี่ยมชม</Btn>
           </div>
         </>)}
-        {mode==="google"&&(
-          <div style={{background:T.surface,border:"1px solid "+T.borderHi,borderRadius:18,padding:"24px 20px"}}>
-            <div style={{textAlign:"center",marginBottom:18}}>
-              <span style={{fontSize:32}}>🔵</span>
-              <div style={{fontSize:16,fontWeight:700,color:T.text,marginTop:8}}>เข้าด้วย Google</div>
-              <div style={{fontSize:13,color:T.muted,marginTop:5}}>ใส่ชื่อที่ต้องการแสดงในแอป</div>
-            </div>
-            <Input value={gName} onChange={e=>{setGName(e.target.value);setGErr("");}}
-              placeholder="ชื่อของคุณ..." onKeyDown={e=>e.key==="Enter"&&loginGoogle()} style={{marginBottom:10}}/>
-            {gErr&&<div style={{fontSize:12,color:T.red,marginBottom:10,fontWeight:500}}>{gErr}</div>}
-            <Btn onClick={loginGoogle} v="primary" sz="md" full style={{marginBottom:10}}>เข้าสู่ระบบ ✨</Btn>
-            <button onClick={()=>{setMode("main");setGErr("");}}
-              style={{width:"100%",background:"transparent",border:"none",color:T.muted,cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:"6px 0"}}>
-              ← กลับ
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -354,11 +389,12 @@ function RoomChat({roomId,user}){
     const txt=input.trim();
     if(!txt||!roomId)return;
     // Optimistic update — แสดงข้อความทันทีก่อน Firebase ตอบกลับ
-    const tempMsg={id:"tmp-"+Date.now(),author:user.name,init:user.init,text:txt,t:{toMillis:()=>Date.now()}};
+    const tempMsg={id:"tmp-"+Date.now(),uid:getUid(),author:user.name,init:user.init,text:txt,t:{toMillis:()=>Date.now()}};
     setMsgs(prev=>[...prev,tempMsg]);
     setInput("");
     try{
       await addDoc(collection(db,"voiceRooms",roomId,"chat"),{
+        uid:getUid(),
         author:user.name,
         init:user.init||user.name.slice(0,2).toUpperCase(),
         text:txt,
@@ -379,7 +415,7 @@ function RoomChat({roomId,user}){
       <div style={{maxHeight:160,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,marginBottom:8}}>
         {msgs.map(m=>(
           <div key={m.id} style={{display:"flex",gap:7,alignItems:"flex-start"}}>
-            <div style={{width:24,height:24,borderRadius:"50%",background:T.brand+"44",color:T.brand2,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{m.init?.slice(0,2)||"??"}</div>
+            <Av uid={m.uid} init={(m.init||"??").slice(0,2)} bg={T.card} tc={T.brand2} size={24}/>
             <div>
               <span style={{fontSize:11,fontWeight:700,color:T.brand2,marginRight:5}}>{m.author}</span>
               <span style={{fontSize:13,color:T.text}}>{m.text}</span>
@@ -410,116 +446,135 @@ function RoomChat({roomId,user}){
   );
 }
 
-// ── LiveKit Voice Hook (v1 API) ─────────────────────────
-function useVoiceRoom(roomName, userName, enabled){
-  const roomRef = useRef(null);
-  const audioEls = useRef([]);
+// ── Device id (unique per browser) ───────────────────────
+function getUid(){
+  let id=ls.get("uid",null);
+  if(!id||typeof id!=="string"){
+    id=((window.crypto&&crypto.randomUUID)?crypto.randomUUID():Date.now()+Math.random().toString(36).slice(2)).replace(/-/g,"").slice(0,16);
+    ls.set("uid",id);
+  }
+  return id;
+}
+
+// ── LiveKit Voice Hook (imperative: connect ตอนกดปุ่ม เพื่อให้ผ่าน autoplay policy) ──
+function useVoice(){
+  const roomRef=useRef(null);
   const [connected,setConnected]=useState(false);
   const [speaking,setSpeaking]=useState({});
-  const [micOn,setMicOn]=useState(true);
+  const [mics,setMics]=useState({});
+  const [micOn,setMicOn]=useState(false);
+  const [needAudio,setNeedAudio]=useState(false);
   const [error,setError]=useState("");
 
-  useEffect(()=>{
-    if(!enabled||!roomName||!userName)return;
+  const refreshMics=useCallback(()=>{
+    const room=roomRef.current; if(!room)return;
+    const m={};
+    m[room.localParticipant.identity]=room.localParticipant.isMicrophoneEnabled;
+    room.remoteParticipants.forEach(p=>{m[p.identity]=p.isMicrophoneEnabled;});
+    setMics(m);
+    setMicOn(room.localParticipant.isMicrophoneEnabled);
+  },[]);
 
-    // LiveKit v1 ใช้ Room แบบนี้
-    const { Room, RoomEvent, Track } = require("livekit-client");
-    const room = new Room({
-      adaptiveStream: true,
-      dynacast: true,
+  const disconnect=useCallback(()=>{
+    const room=roomRef.current; roomRef.current=null;
+    if(room){try{room.removeAllListeners();room.disconnect();}catch(e){}}
+    document.querySelectorAll("audio[data-lk]").forEach(el=>{try{el.srcObject=null;}catch(e){} el.remove();});
+    setConnected(false);setSpeaking({});setMics({});setMicOn(false);setNeedAudio(false);
+  },[]);
+
+  const connect=useCallback(async(roomId,identity,name)=>{
+    disconnect();
+    setError("");
+    const room=new Room({
+      adaptiveStream:true,dynacast:true,
+      audioCaptureDefaults:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},
     });
-    roomRef.current = room;
-
-    async function connect(){
-      try{
-        const res = await fetch(
-          `/api/token?room=${encodeURIComponent(roomName)}&username=${encodeURIComponent(userName)}`
-        );
-        if(!res.ok) throw new Error("Token "+res.status);
-        const data = await res.json();
-        if(!data.token||!data.url) throw new Error("Invalid token");
-
-        await room.connect(data.url, data.token);
-
-        // เปิดไมค์ด้วย v1 API
-        await room.localParticipant.enableCameraAndMicrophone();
-        // ปิดกล้อง เปิดแค่ไมค์
-        await room.localParticipant.setCameraEnabled(false);
-        await room.localParticipant.setMicrophoneEnabled(true);
-
-        setConnected(true);
-        setMicOn(true);
-        setError("");
-      }catch(e){
-        console.error("LiveKit connect error:",e);
-        setError("เชื่อมต่อเสียงไม่สำเร็จ");
-      }
-    }
-
-    // คนพูดอยู่
-    room.on(RoomEvent.ActiveSpeakersChanged, speakers=>{
-      const sp={};
-      speakers.forEach(p=>{ sp[p.identity]=true; });
-      setSpeaking(sp);
-    });
-
-    // รับ track จากคนอื่น → เล่นเสียง
-    room.on(RoomEvent.TrackSubscribed,(track,pub,participant)=>{
+    roomRef.current=room;
+    room.on(RoomEvent.ActiveSpeakersChanged,sp=>{const m={};sp.forEach(p=>{m[p.identity]=true;});setSpeaking(m);});
+    room.on(RoomEvent.TrackSubscribed,track=>{
       if(track.kind===Track.Kind.Audio){
-        const el = track.attach();
+        const el=track.attach();
+        el.setAttribute("data-lk","1");
         el.style.display="none";
-        el.autoplay=true;
         document.body.appendChild(el);
-        audioEls.current.push(el);
       }
+      refreshMics();
     });
+    room.on(RoomEvent.TrackUnsubscribed,track=>{track.detach().forEach(el=>el.remove());refreshMics();});
+    room.on(RoomEvent.AudioPlaybackStatusChanged,()=>setNeedAudio(!room.canPlaybackAudio));
+    [RoomEvent.TrackMuted,RoomEvent.TrackUnmuted,RoomEvent.ParticipantConnected,RoomEvent.ParticipantDisconnected,
+     RoomEvent.LocalTrackPublished,RoomEvent.LocalTrackUnpublished,RoomEvent.TrackPublished].forEach(ev=>room.on(ev,refreshMics));
+    room.on(RoomEvent.Disconnected,()=>{if(roomRef.current===room){setConnected(false);setMicOn(false);setSpeaking({});}});
 
-    room.on(RoomEvent.TrackUnsubscribed,(track)=>{
-      const els = track.detach();
-      els.forEach(el=>{ el.remove(); });
-      audioEls.current = audioEls.current.filter(e=>!els.includes(e));
-    });
-
-    connect();
-
-    return()=>{
-      audioEls.current.forEach(el=>{ try{ el.srcObject=null; el.remove(); }catch(e){} });
-      audioEls.current=[];
-      try{ room.removeAllListeners(); room.disconnect(); }catch(e){}
-      roomRef.current=null;
-      setConnected(false);
-      setSpeaking({});
-      setMicOn(true);
-    };
-  },[enabled,roomName,userName]);
-
-  async function toggleMic(){
-    if(!roomRef.current?.localParticipant)return;
     try{
-      const next=!micOn;
-      await roomRef.current.localParticipant.setMicrophoneEnabled(next);
-      setMicOn(next);
-    }catch(e){ console.error("toggleMic:",e); }
+      const url=`/api/token?room=${encodeURIComponent(roomId)}&identity=${encodeURIComponent(identity)}&name=${encodeURIComponent(name)}`;
+      const r=await fetch(url);
+      let data={};try{data=await r.json();}catch(e){}
+      if(!r.ok||!data.token||!data.url)throw new Error(data.error||("token "+r.status));
+      await room.connect(data.url,data.token);
+      if(roomRef.current!==room){room.disconnect();return;}
+      setConnected(true);
+      try{await room.startAudio();}catch(e){}
+      setNeedAudio(!room.canPlaybackAudio);
+      try{
+        await room.localParticipant.setMicrophoneEnabled(true);
+      }catch(e){
+        console.error("mic error",e);
+        setError("เปิดไมค์ไม่ได้ — กดอนุญาตไมค์ในเบราว์เซอร์ แล้วกดปุ่มไมค์อีกครั้ง");
+      }
+      refreshMics();
+    }catch(e){
+      console.error("voice connect error",e);
+      if(roomRef.current===room)setError("เชื่อมต่อเสียงไม่สำเร็จ: "+(e&&e.message?e.message:e));
+    }
+  },[disconnect,refreshMics]);
+
+  const setMic=useCallback(async(on)=>{
+    const room=roomRef.current; if(!room)return;
+    try{
+      await room.localParticipant.setMicrophoneEnabled(on);
+      setError("");
+    }catch(e){
+      console.error("toggleMic",e);
+      setError("เปิดไมค์ไม่ได้ — อนุญาตไมค์ในเบราว์เซอร์ก่อน");
+    }
+    refreshMics();
+  },[refreshMics]);
+
+  const toggleMic=useCallback(()=>{
+    const room=roomRef.current; if(!room)return;
+    return setMic(!room.localParticipant.isMicrophoneEnabled);
+  },[setMic]);
+
+  const enableAudio=useCallback(async()=>{
+    const room=roomRef.current; if(!room)return;
+    try{await room.startAudio();}catch(e){}
+    setNeedAudio(!room.canPlaybackAudio);
+  },[]);
+
+  useEffect(()=>()=>disconnect(),[disconnect]);
+
+  return{connected,micOn,speaking,mics,needAudio,error,connect,disconnect,toggleMic,setMic,enableAudio};
+}
+
+// ── Error Boundary (class จริง จับ error ตอน render ได้) ────────
+class VoiceErrorBoundary extends Component{
+  constructor(p){super(p);this.state={err:null};}
+  static getDerivedStateFromError(e){return{err:String(e&&e.message?e.message:e)};}
+  componentDidCatch(e){console.error("VoiceRooms crashed:",e);}
+  render(){
+    if(this.state.err)return(
+      <div style={{padding:24,textAlign:"center"}}>
+        <div style={{fontSize:24,marginBottom:8}}>⚠️</div>
+        <div style={{color:T.red,fontWeight:700,marginBottom:8}}>ห้องเสียงเจอปัญหา</div>
+        <div style={{color:T.muted,fontSize:13,marginBottom:16}}>{this.state.err}</div>
+        <Btn onClick={()=>this.setState({err:null})} v="primary" sz="sm">ลองใหม่</Btn>
+      </div>
+    );
+    return this.props.children;
   }
-
-  function isSpeaking(identity){ return !!speaking[identity]; }
-
-  return{connected,micOn,toggleMic,isSpeaking,voiceError:error};
 }
 
-// ── Error Boundary สำหรับ Voice Rooms ───────────────────────
-function VoiceErrorBoundary({children}){
-  const [err,setErr]=useState(null);
-  if(err) return(
-    <div style={{padding:24,textAlign:"center"}}>
-      <div style={{fontSize:24,marginBottom:8}}>⚠️</div>
-      <div style={{color:T.red,fontWeight:700,marginBottom:8}}>ห้องเสียงเจอปัญหา</div>
-      <div style={{color:T.muted,fontSize:13,marginBottom:16}}>{err}</div>
-      <Btn onClick={()=>setErr(null)} v="primary" sz="sm">ลองใหม่</Btn>
-    </div>
-  );
-  return children;
-}
 
 // ── Voice Rooms (Firebase + LiveKit) ─────────────────────
 function VoiceRoomsPage({user}){
@@ -532,12 +587,41 @@ function VoiceRoomsPage({user}){
   const [nameErr,setNameErr]=useState("");
   const [loading,setLoading]=useState(true);
 
+  const myUid=getUid();
+  const seenRef=useRef(false);
+  const voice=useVoice();
+  const {connected,micOn,speaking,mics,needAudio,error:voiceError,toggleMic,enableAudio}=voice;
+
   const inRoom=rooms.find(r=>r.id===inRoomId);
-  const isHost=inRoom&&inRoom.hostInit===user.init;
-  // LiveKit voice hook
-  const {connected,micOn,toggleMic,isSpeaking,voiceError}=useVoiceRoom(
-    inRoomName, user.name, !!inRoomId && !user.isGuest
-  );
+  const memberList=inRoom&&Array.isArray(inRoom.members)?inRoom.members:[];
+  const isMeM=m=>m.uid?m.uid===myUid:m.init===user.init;
+  const me=memberList.find(isMeM);
+  const isHost=!!inRoom&&(inRoom.hostUid?inRoom.hostUid===myUid:inRoom.hostInit===user.init);
+
+  // ถูกเตะ / ห้องถูกปิด → ออกจากห้องฝั่งเรา
+  useEffect(()=>{
+    if(!inRoomId||loading)return;
+    if(me){seenRef.current=true;return;}
+    if(seenRef.current){
+      seenRef.current=false;
+      if(inRoom&&Array.isArray(inRoom.kicked)&&inRoom.kicked.includes(myUid))alert("คุณถูกเจ้าของห้องเตะออกจากห้อง");
+      voice.disconnect();setInRoomId(null);setShowPL(false);
+    }
+  },[inRoomId,loading,rooms]); // eslint-disable-line
+
+  // โฮสต์ปิดไมค์เรา → ปิดไมค์จริง
+  useEffect(()=>{
+    if(connected&&me&&me.mic===false&&micOn)voice.setMic(false);
+  },[connected,me&&me.mic,micOn]); // eslint-disable-line
+
+  // มีเพลงเริ่มเล่น → เปิดแผงเพลงให้ทุกคนเห็นอัตโนมัติ (รวม Guest)
+  const nowPlayingId=inRoom?inRoom.nowPlaying:null;
+  useEffect(()=>{ if(nowPlayingId)setShowPL(true); },[nowPlayingId]);
+
+  function onMicClick(){
+    if(me&&me.mic===false&&!micOn){alert("โฮสต์ปิดไมค์ของคุณอยู่");return;}
+    toggleMic();
+  }
 
   useEffect(()=>{
     const q=query(collection(db,"voiceRooms"),orderBy("createdAt","desc"));
@@ -549,44 +633,68 @@ function VoiceRoomsPage({user}){
   },[]);
 
   async function join(r){
-    const members=Array.isArray(r.members)?r.members:[];
-    if(!members.find(m=>m.init===user.init)){
-      await updateDoc(doc(db,"voiceRooms",r.id),{
-        members:[...members,{init:user.init,name:user.name,mic:true}]
-      });
+    if(Array.isArray(r.kicked)&&r.kicked.includes(myUid)){
+      alert("คุณถูกเจ้าของห้องเตะออก เข้าห้องนี้ไม่ได้");
+      return;
     }
-    setInRoomId(r.id);setShowPL(false);
+    // เชื่อมต่อเสียงทันทีในจังหวะที่กดปุ่ม (ต้องมี user gesture ถึงจะได้ยินเสียงและขอไมค์ได้)
+    seenRef.current=false;
+    setInRoomId(r.id);setInRoomName(r.name);setShowPL(true);
+    voice.connect(r.id,myUid,user.name);
+    const members=Array.isArray(r.members)?r.members:[];
+    if(!members.find(m=>m.uid===myUid)){
+      try{
+        await updateDoc(doc(db,"voiceRooms",r.id),{
+          members:[...members.filter(m=>m.uid||m.init!==user.init),{uid:myUid,init:user.init,name:user.name,mic:true}]
+        });
+      }catch(e){console.error(e);}
+    }
   }
 
   async function leave(){
     if(!inRoom)return;
-    const members=(Array.isArray(inRoom.members)?inRoom.members:[]).filter(m=>m.init!==user.init);
-    if(members.length===0){await deleteDoc(doc(db,"voiceRooms",inRoomId));}
-    else{await updateDoc(doc(db,"voiceRooms",inRoomId),{members});}
+    const rid=inRoomId;
+    const members=memberList.filter(m=>!isMeM(m));
+    voice.disconnect();
+    seenRef.current=false;
     setInRoomId(null);setInRoomName("");setShowPL(false);
+    try{
+      if(members.length===0){await deleteDoc(doc(db,"voiceRooms",rid));}
+      else{await updateDoc(doc(db,"voiceRooms",rid),{members});}
+    }catch(e){console.error(e);}
   }
 
-  async function hostToggleMic(init){
+  async function hostToggleMic(key){
     if(!isHost)return;
-    const members=(Array.isArray(inRoom.members)?inRoom.members:[]).map(m=>m.init===init?{...m,mic:!m.mic}:m);
+    const members=memberList.map(m=>(m.uid||m.init)===key?{...m,mic:m.mic===false}:m);
     await updateDoc(doc(db,"voiceRooms",inRoomId),{members});
   }
 
-  async function kick(init){
-    if(!isHost||init===user.init)return;
-    const members=(Array.isArray(inRoom.members)?inRoom.members:[]).filter(m=>m.init!==init);
-    await updateDoc(doc(db,"voiceRooms",inRoomId),{members});
+  async function kick(key){
+    if(!isHost||key===myUid)return;
+    const target=memberList.find(m=>(m.uid||m.init)===key);
+    if(!window.confirm("เตะ "+((target&&target.name)||"คนนี้")+" ออกจากห้อง? (เข้าห้องนี้ใหม่ไม่ได้)"))return;
+    const members=memberList.filter(m=>(m.uid||m.init)!==key);
+    try{
+      await updateDoc(doc(db,"voiceRooms",inRoomId),{members,kicked:arrayUnion(key)});
+    }catch(e){console.error(e);alert("เตะไม่สำเร็จ: "+(e.code||e.message));}
   }
 
   async function create(){
     if(!newName.trim()){setNameErr("ใส่ชื่อห้องก่อนนะ");return;}
-    const r=await addDoc(collection(db,"voiceRooms"),{
-      name:newName.trim(),vibe:"🎵",hostInit:user.init,hostName:user.name,
-      members:[{init:user.init,name:user.name,mic:true}],
-      playlist:[],nowPlaying:null,songStartedAt:null,
-      createdAt:serverTimestamp()
-    });
-    setInRoomId(r.id);setNewName("");setCreating(false);setNameErr("");
+    const nm=newName.trim();
+    seenRef.current=false;
+    try{
+      const r=await addDoc(collection(db,"voiceRooms"),{
+        name:nm,vibe:"🎵",hostInit:user.init,hostUid:myUid,hostName:user.name,
+        members:[{uid:myUid,init:user.init,name:user.name,mic:true}],
+        playlist:[],nowPlaying:null,songStartedAt:null,
+        createdAt:serverTimestamp()
+      });
+      setInRoomId(r.id);setInRoomName(nm);setShowPL(true);
+      voice.connect(r.id,myUid,user.name);
+    }catch(e){console.error(e);setNameErr("สร้างห้องไม่สำเร็จ: "+(e.message||e));return;}
+    setNewName("");setCreating(false);setNameErr("");
   }
 
   async function addSong(song){
@@ -626,37 +734,41 @@ function VoiceRoomsPage({user}){
                   {inRoom.vibe} {inRoom.name}
                 </div>
                 <div style={{fontSize:12,color:T.muted,marginTop:3}}>
-                  {user.isGuest?"👀 ดูอย่างเดียว (Guest)":connected?"🎙️ เชื่อมต่อเสียงแล้ว":"⏳ กำลังเชื่อมต่อ..."}
+                  {connected?(micOn?"🎙️ เชื่อมต่อแล้ว • ไมค์เปิด":"🔇 เชื่อมต่อแล้ว • ไมค์ปิด"):"⏳ กำลังเชื่อมต่อ..."}
                   {" • "}{(inRoom.members||[]).length} คน
                 </div>
                 {voiceError&&<div style={{fontSize:11,color:T.red,marginTop:3}}>⚠️ {voiceError}</div>}
+                {isHost&&(inRoom.members||[]).length>1&&<div style={{fontSize:11,color:T.brand2,marginTop:3}}>👑 คุณเป็นเจ้าของห้อง — กด 🚫 ที่มุมรูปสมาชิกเพื่อเตะออก</div>}
+                {needAudio&&<div onClick={enableAudio} style={{fontSize:12,color:T.yellow,marginTop:4,cursor:"pointer",fontWeight:700}}>🔊 แตะที่นี่เพื่อเปิดเสียงห้อง</div>}
               </div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                 <Btn onClick={()=>setShowPL(!showPL)} v={showPL?"primary":"ghost"} sz="sm">🎵 Playlist</Btn>
-                {!user.isGuest&&(
-                  <Btn onClick={toggleMic} v={micOn?"ghost":"danger"} sz="sm">{micOn?"🎙️":"🔇"}</Btn>
-                )}
+                <Btn onClick={onMicClick} v={micOn?"primary":"danger"} sz="sm">{micOn?"🎙️ เปิด":"🔇 ปิด"}</Btn>
                 <Btn onClick={leave} v="danger" sz="sm">📵</Btn>
               </div>
             </div>
 
             {/* Members */}
             <div style={{display:"flex",gap:12,flexWrap:"wrap",paddingBottom:16}}>
-              {(Array.isArray(inRoom.members)?inRoom.members:[]).map((m,i)=>{
-                const isMe=m.init===user.init;
+              {memberList.map((m,i)=>{
+                const isMe=isMeM(m);
+                const key=m.uid||m.init;
+                const isSpeaking=!!speaking[isMe?myUid:key];
+                const lkMic=mics[isMe?myUid:key];
+                const showMicOn=isMe?micOn:(lkMic===undefined?m.mic!==false:(lkMic&&m.mic!==false));
                 return(
-                  <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,position:"relative"}}>
+                  <div key={key+i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,position:"relative"}}>
                     {isHost&&!isMe&&(
-                      <div style={{position:"absolute",top:-6,right:-4,display:"flex",gap:2,zIndex:2}}>
-                        <button onClick={()=>hostToggleMic(m.init)} style={{width:16,height:16,borderRadius:"50%",background:m.mic?"#1A3A2A":"#2A2A1A",border:"1px solid "+T.border,cursor:"pointer",fontSize:8,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>{m.mic?"🎙":"🔇"}</button>
-                        <button onClick={()=>kick(m.init)} style={{width:16,height:16,borderRadius:"50%",background:T.redBg,border:"1px solid rgba(244,63,94,.3)",cursor:"pointer",fontSize:8,display:"flex",alignItems:"center",justifyContent:"center",color:T.red,fontFamily:"inherit"}}>✕</button>
+                      <div style={{position:"absolute",top:-10,right:-12,display:"flex",gap:3,zIndex:2}}>
+                        <button onClick={()=>hostToggleMic(key)} style={{width:26,height:26,borderRadius:"50%",background:m.mic!==false?"#1A3A2A":"#2A2A1A",border:"1px solid "+T.border,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>{m.mic!==false?"🎙":"🔇"}</button>
+                        <button onClick={()=>kick(key)} style={{width:26,height:26,borderRadius:"50%",background:T.redBg,border:"1px solid rgba(244,63,94,.5)",cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center",color:T.red,fontFamily:"inherit"}}>🚫</button>
                       </div>
                     )}
                     <div style={{padding:3,borderRadius:"50%",
                       border:"2.5px solid "+(isSpeaking?T.green:T.border),
                       boxShadow:isSpeaking?"0 0 16px rgba(16,185,129,.5)":"none",
                       transition:"all .2s"}}>
-                      <Av init={m.init} bg={T.card} tc={T.brand2} grad={isMe} isSelf={isMe} size={48}/>
+                      <Av uid={m.uid} init={m.init} bg={T.card} tc={T.brand2} grad={isMe} isSelf={isMe} size={48}/>
                     </div>
                     <div style={{fontSize:11,color:T.brand2,fontWeight:700,maxWidth:56,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isMe?"คุณ":m.name}</div>
                     {/* ไมค์ animation เมื่อพูด */}
@@ -669,7 +781,7 @@ function VoiceRoomsPage({user}){
                         ))}
                       </div>
                     ):(
-                      <span style={{fontSize:11,color:T.muted}}>{(isMe?micOn:m.mic)?"🎙️":"🔇"}</span>
+                      <span style={{fontSize:11,color:T.muted}}>{showMicOn?"🎙️":"🔇"}</span>
                     )}
                   </div>
                 );
@@ -732,13 +844,16 @@ function VoiceRoomsPage({user}){
 
 // ── Post Card ─────────────────────────────────────────────
 function PostCard({p,user}){
+  const users=useContext(UsersCtx);
+  const openProfile=useContext(ProfileCtx);
+  const myUid=getUid();
   const [open,setOpen]=useState(false);
   const [cmt,setCmt]=useState("");
   const [err,setErr]=useState("");
   const [liked,setLiked]=useState(false);
   const [likeCount,setLikeCount]=useState(p.likes||0);
   const [comments,setComments]=useState(Array.isArray(p.comments)?p.comments:[]);
-  const isOwner=!user.isGuest&&p.author===user.name;
+  const isOwner=!user.isGuest&&(p.authorUid?p.authorUid===myUid:p.author===user.name);
 
   async function handleLike(){
     if(user.isGuest)return;
@@ -755,7 +870,7 @@ function PostCard({p,user}){
 
   async function submitComment(){
     if(!cmt.trim()){setErr("เม้นอะไรก่อนนะ");return;}
-    const newCmt={id:"c"+Date.now(),author:user.name,init:user.init,text:cmt.trim(),time:"เมื่อกี้"};
+    const newCmt={id:"c"+Date.now(),uid:myUid,author:user.name,init:user.init,text:cmt.trim(),time:"เมื่อกี้"};
     const updated=[...comments,newCmt];
     setComments(updated);
     await updateDoc(doc(db,"posts",p.id),{comments:updated});
@@ -766,12 +881,9 @@ function PostCard({p,user}){
     <Card style={{marginBottom:12}}>
       <div style={{padding:"16px 16px 0"}}>
         <div style={{display:"flex",gap:12,marginBottom:12}}>
-          {p.authorAvatar
-          ? <img src={p.authorAvatar} alt={p.author} style={{width:42,height:42,borderRadius:"50%",objectFit:"cover",flexShrink:0,border:"2px solid "+T.border}}/>
-          : <Av init={p.authorInit||p.author?.slice(0,2)||"??"} bg={T.card} tc={T.brand2} size={42}/>
-        }
+          <div onClick={()=>openProfile&&openProfile(p.authorUid)} style={{cursor:p.authorUid?"pointer":"default"}}><Av uid={p.authorUid} init={p.authorInit||p.author?.slice(0,2)||"??"} bg={T.card} tc={T.brand2} size={42}/></div>
           <div style={{flex:1}}>
-            <div style={{fontSize:14,fontWeight:700,color:T.text}}>{p.author}</div>
+            <div onClick={()=>openProfile&&openProfile(p.authorUid)} style={{fontSize:14,fontWeight:700,color:T.text,cursor:p.authorUid?"pointer":"default"}}>{(p.authorUid&&users[p.authorUid]&&users[p.authorUid].name)||p.author}</div>
             <div style={{fontSize:12,color:T.muted,display:"flex",flexWrap:"wrap",gap:6,marginTop:3}}>
               <span>{p.createdAt?timeAgo(p.createdAt):"เมื่อกี้"}</span><span>·</span>
               <span style={{background:T.surface,borderRadius:20,padding:"1px 8px",border:"1px solid "+T.border}}>{PV_ICO[p.privacy||"public"]} {PV_LBL[p.privacy||"public"]}</span>
@@ -792,15 +904,15 @@ function PostCard({p,user}){
           <div style={{marginTop:12}}>
             {comments.map(c=>(
               <div key={c.id} style={{display:"flex",gap:9,marginBottom:10}}>
-                <Av init={c.init||"??"} bg={T.card} tc={T.brand2} size={30}/>
+                <Av uid={c.uid} init={c.init||"??"} bg={T.card} tc={T.brand2} size={30}/>
                 <div style={{background:T.surface,borderRadius:14,padding:"8px 13px",flex:1,border:"1px solid "+T.border}}>
-                  <div style={{fontSize:12,fontWeight:700,color:T.text}}>{c.author} <span style={{fontWeight:400,color:T.muted,fontSize:11}}>{c.time}</span></div>
+                  <div style={{fontSize:12,fontWeight:700,color:T.text}}>{(c.uid&&users[c.uid]&&users[c.uid].name)||c.author} <span style={{fontWeight:400,color:T.muted,fontSize:11}}>{c.time}</span></div>
                   <div style={{fontSize:13,color:T.sub,marginTop:3,lineHeight:1.5}}>{c.text}</div>
                 </div>
               </div>
             ))}
             <div style={{display:"flex",gap:9,alignItems:"center",marginTop:6}}>
-              <Av init={user.init} grad size={30}/>
+              <Av uid={myUid} init={user.init} grad size={30}/>
               <input value={cmt} onChange={e=>{setCmt(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&submitComment()} placeholder="เม้นอะไรสักอย่าง..."
                 style={{flex:1,border:"1px solid "+T.border,borderRadius:20,padding:"8px 14px",fontSize:13,outline:"none",background:T.surface,color:T.text,fontFamily:"inherit"}}
                 onFocus={e=>e.target.style.borderColor=T.borderHi} onBlur={e=>e.target.style.borderColor=T.border}/>
@@ -850,9 +962,9 @@ function NewPostBox({user}){
         };
         vid.src=URL.createObjectURL(f);
       } else {
-        const r=new FileReader();
-        r.onload=ev=>setImages(p=>[...p,{src:ev.target.result,name:f.name,isVideo:false}]);
-        r.readAsDataURL(f);
+        compressImage(f,1000,0.7)
+          .then(src=>setImages(p=>[...p,{src,name:f.name,isVideo:false}]))
+          .catch(()=>setErr("อ่านรูปไม่ได้ ลองรูปอื่น"));
       }
     });
     e.target.value="";
@@ -862,11 +974,11 @@ function NewPostBox({user}){
     if(!text.trim()&&!images.length){setErr("เขียนหรือเพิ่มรูปก่อนนะ");return;}
     setPosting(true);
     try{
-      const postName = !user.isGuest ? (ls.get("displayName",user.name)||user.name) : user.name;
+      const postName = user.name;
       const postInit = postName.slice(0,2).toUpperCase();
       await addDoc(collection(db,"posts"),{
         author:postName, authorInit:postInit,
-        authorAvatar: ls.get("avatarImg",""),
+        authorUid:getUid(),
         content:text.trim(), mood, privacy,
         images:images.map(i=>i.src),
         mediaTypes:images.map(i=>i.isVideo?"video":"image"),
@@ -882,7 +994,7 @@ function NewPostBox({user}){
     <Card style={{marginBottom:14}}>
       <div style={{padding:"16px"}}>
         <div style={{display:"flex",gap:12}}>
-          <Av init={user.init} grad isSelf size={42}/>
+          <Av uid={getUid()} init={user.init} grad isSelf size={42}/>
           <textarea value={text} onChange={e=>{setText(e.target.value);setErr("");}} placeholder="คุณรู้สึกยังไงวันนี้? 💜"
             style={{flex:1,border:"1px solid "+T.border,borderRadius:14,padding:"10px 14px",fontSize:14,resize:"none",outline:"none",minHeight:72,lineHeight:1.6,background:T.surface,color:T.text,fontFamily:"inherit",transition:"border .15s"}}
             onFocus={e=>e.target.style.borderColor=T.borderHi} onBlur={e=>e.target.style.borderColor=T.border}/>
@@ -944,90 +1056,179 @@ function FeedPage({user}){
 }
 
 // ── Chat (local) ──────────────────────────────────────────
-function ChatPage({user}){
-  const [chats,setChats]=useState({1:[{id:"m1",from:"them",text:"หวัดดีจ้า วันนี้เป็นยังไงบ้าง 😊",type:"text"}],2:[{id:"m2",from:"them",text:"เฮ้ มีอะไรเล่าให้ฟังมั้ย 👂",type:"text"}],3:[{id:"m3",from:"them",text:"ง่วงมากเลยวันนี้ 😴",type:"text"}],4:[{id:"m4",from:"them",text:"อยู่บ้านคนเดียวเหงาๆ",type:"text"}],5:[{id:"m5",from:"them",text:"ใครอยากคุยบ้างมั้ย! 🙋",type:"text"}]});
-  const [active,setActive]=useState(1);
+function fmtTime(ms){
+  if(!ms)return"";
+  try{return new Date(ms).toLocaleTimeString("th-TH",{hour:"2-digit",minute:"2-digit"});}catch(e){return"";}
+}
+
+// ── แชทแบบฟองข้อความ (ใช้ทั้งห้องรวมและแชทส่วนตัว) ────────
+function BubbleChat({path,user,showNames,placeholder="พิมพ์ข้อความ...",onSent}){
+  const users=useContext(UsersCtx);
+  const myUid=getUid();
+  const pathKey=path.join("/");
+  const [msgs,setMsgs]=useState([]);
   const [input,setInput]=useState("");
-  const [voiceOn,setVoiceOn]=useState(false);
-  const [micOn,setMicOn]=useState(true);
-  const [chatImg,setChatImg]=useState(null);
+  const [img,setImg]=useState(null);
+  const [err,setErr]=useState("");
   const fileRef=useRef();const endRef=useRef();
-  useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth"});},[chats,active]);
-  const friend=FRIENDS.find(f=>f.id===active);
-  const msgs=chats[active]||[];
-  function send(){const txt=input.trim();if(!txt&&!chatImg)return;const nm=[];if(chatImg)nm.push({id:"im"+Date.now(),from:"me",type:"image",src:chatImg});if(txt)nm.push({id:"tx"+Date.now(),from:"me",type:"text",text:txt});setChats(c=>({...c,[active]:[...(c[active]||[]),...nm]}));setInput("");setChatImg(null);setTimeout(()=>{const r=AUTO_REPLIES[Math.floor(Math.random()*AUTO_REPLIES.length)];setChats(c=>({...c,[active]:[...(c[active]||[]),{id:"au"+Date.now(),from:"them",type:"text",text:r}]}));},800+Math.random()*500);}
-  function toggleVoice(){const nx=!voiceOn;setVoiceOn(nx);const sys={id:"sy"+Date.now(),from:"system",text:nx?`🎙️ เปิดห้องเสียงแล้ว — รอ ${friend.name} รับสาย...`:"📵 วางสายแล้ว"};setChats(c=>({...c,[active]:[...(c[active]||[]),sys]}));if(nx)setTimeout(()=>setChats(c=>({...c,[active]:[...(c[active]||[]),{id:"sy2"+Date.now(),from:"system",text:`✅ ${friend.name} รับสายแล้ว! 💜`}]})),1400);}
+
+  useEffect(()=>{
+    setMsgs([]);setErr("");
+    const q=query(collection(db,...path),orderBy("t","desc"),limit(150));
+    return onSnapshot(q,snap=>{
+      setMsgs(snap.docs.map(d=>({id:d.id,...d.data({serverTimestamps:"estimate"})})).reverse());
+    },e=>{console.error("chat",e);setErr("โหลดแชทไม่ได้ ("+(e.code||e.message)+") — ตรวจ Firestore rules");});
+  },[pathKey]); // eslint-disable-line
+
+  useEffect(()=>{endRef.current?.scrollIntoView({behavior:"smooth"});},[msgs.length]);
+
+  async function send(){
+    const txt=input.trim();
+    if(!txt&&!img)return;
+    const payload={uid:myUid,author:user.name,init:user.init,t:serverTimestamp()};
+    if(txt)payload.text=txt;
+    if(img)payload.image=img;
+    const keepImg=img;
+    setInput("");setImg(null);setErr("");
+    try{
+      await addDoc(collection(db,...path),payload);
+      onSent&&onSent(txt||"📷 รูปภาพ");
+    }catch(e){
+      console.error("send",e);
+      setInput(txt);setImg(keepImg);
+      setErr("ส่งไม่ได้ ("+(e.code||e.message)+")");
+    }
+  }
+
   return(
-    <div style={{display:"flex",height:"calc(100dvh - 112px)",overflow:"hidden"}}>
-      <div style={{width:64,borderRight:"1px solid "+T.border,background:T.surface,display:"flex",flexDirection:"column",alignItems:"center",paddingTop:10,gap:4,flexShrink:0}}>
-        {FRIENDS.map(f=>(
-          <button key={f.id} onClick={()=>setActive(f.id)} style={{background:"transparent",border:"none",cursor:"pointer",padding:"6px 0",opacity:active===f.id?1:.5,transition:"opacity .15s",position:"relative"}}>
-            <Av init={f.init} bg={f.bg} tc={f.tc} size={40} online={f.online}/>
-            {active===f.id&&<div style={{position:"absolute",left:0,top:"50%",transform:"translateY(-50%)",width:3,height:28,background:T.brand,borderRadius:"0 3px 3px 0"}}/>}
-          </button>
-        ))}
+    <div style={{display:"flex",flexDirection:"column",flex:1,minHeight:0}}>
+      <div style={{flex:1,overflowY:"auto",padding:"12px 12px",display:"flex",flexDirection:"column",gap:6}}>
+        {msgs.length===0&&!err&&<div style={{textAlign:"center",color:T.muted,fontSize:13,padding:"30px 0"}}>ยังไม่มีข้อความ — ทักทายกันได้เลย 👋</div>}
+        {msgs.map((m,i)=>{
+          const me=m.uid===myUid;
+          const prev=msgs[i-1];
+          const head=!me&&showNames&&(!prev||prev.uid!==m.uid);
+          const nm=(m.uid&&users[m.uid]&&users[m.uid].name)||m.author||"ผู้ใช้";
+          const ms=m.t&&m.t.toMillis?m.t.toMillis():0;
+          return(
+            <div key={m.id} style={{display:"flex",gap:8,alignItems:"flex-end",flexDirection:me?"row-reverse":"row"}}>
+              {!me&&<Av uid={m.uid} init={(m.init||"??").slice(0,2)} bg={T.card} tc={T.brand2} size={28}/>}
+              <div style={{maxWidth:"74%",display:"flex",flexDirection:"column",alignItems:me?"flex-end":"flex-start"}}>
+                {head&&<div style={{fontSize:11,fontWeight:700,color:T.brand2,margin:"0 0 3px 4px"}}>{nm}</div>}
+                {m.image&&<img src={m.image} alt="" style={{maxWidth:"100%",borderRadius:14,display:"block",border:"1px solid "+T.border,marginBottom:m.text?4:0}}/>}
+                {m.text&&<div style={{padding:"8px 13px",borderRadius:16,fontSize:14,lineHeight:1.5,wordBreak:"break-word",whiteSpace:"pre-wrap",background:me?T.brandGrad:T.card,color:me?"#fff":T.text,border:me?"none":"1px solid "+T.border,borderBottomLeftRadius:!me?4:16,borderBottomRightRadius:me?4:16}}>{m.text}</div>}
+                <div style={{fontSize:10,color:T.muted,margin:"2px 4px 0"}}>{fmtTime(ms)}</div>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={endRef}/>
       </div>
-      <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0}}>
-        <div style={{padding:"10px 14px",borderBottom:"1px solid "+T.border,background:T.surface,display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-          <Av init={friend.init} bg={friend.bg} tc={friend.tc} size={36} online={friend.online}/>
-          <div style={{flex:1}}>
-            <div style={{fontSize:14,fontWeight:700,color:T.text}}>{friend.name}</div>
-            <div style={{fontSize:12,color:T.muted,display:"flex",alignItems:"center",gap:6}}>
-              {friend.online&&<><div style={{width:6,height:6,borderRadius:"50%",background:T.green}}/><span>ออนไลน์</span></>}
-              {friend.mood&&<span style={{background:T.brand+"22",borderRadius:20,padding:"1px 8px",color:T.brand2,fontWeight:600,fontSize:11}}>✦ {friend.mood}</span>}
-            </div>
-          </div>
-          <Btn onClick={toggleVoice} v={voiceOn?"primary":"ghost"} sz="sm">🎙️ {voiceOn?"คุยอยู่":"เสียง"}</Btn>
+      {err&&<div style={{fontSize:12,color:T.red,padding:"6px 14px",background:T.redBg}}>⚠️ {err}</div>}
+      {img&&<div style={{padding:"8px 14px 0"}}><div style={{position:"relative",display:"inline-block"}}><img src={img} alt="" style={{height:60,borderRadius:10,objectFit:"cover",border:"1px solid "+T.border}}/><button onClick={()=>setImg(null)} style={{position:"absolute",top:-4,right:-4,width:18,height:18,borderRadius:"50%",background:"#444",border:"none",color:"#fff",cursor:"pointer",fontSize:10}}>✕</button></div></div>}
+      <div style={{padding:"10px 12px",borderTop:"1px solid "+T.border,background:T.surface,flexShrink:0}}>
+        <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];e.target.value="";if(!f)return;compressImage(f,900,0.6).then(setImg).catch(()=>setErr("อ่านรูปไม่ได้"));}}/>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={()=>fileRef.current.click()} style={{width:36,height:36,borderRadius:"50%",border:"1px solid "+T.border,background:T.card,cursor:"pointer",fontSize:15,flexShrink:0,fontFamily:"inherit"}}>📷</button>
+          <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}} placeholder={placeholder}
+            style={{flex:1,minWidth:0,border:"1px solid "+T.border,borderRadius:20,padding:"9px 16px",fontSize:14,color:T.text,background:T.card,outline:"none",fontFamily:"inherit"}}
+            onFocus={e=>e.target.style.borderColor=T.borderHi} onBlur={e=>e.target.style.borderColor=T.border}/>
+          <button onClick={send} style={{width:38,height:38,borderRadius:"50%",background:T.brandGrad,border:"none",cursor:"pointer",color:"#fff",flexShrink:0,fontSize:17,fontFamily:"inherit"}}>↑</button>
         </div>
-        {voiceOn&&(
-          <div style={{background:T.brand+"15",borderBottom:"1px solid "+T.borderHi,padding:"10px 14px",flexShrink:0}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-              <div style={{fontSize:13,fontWeight:700,color:T.brand2,display:"flex",alignItems:"center",gap:7}}>
-                <div style={{width:8,height:8,borderRadius:"50%",background:T.green,boxShadow:"0 0 6px "+T.green}}/>ห้องเสียง
-              </div>
-              <div style={{display:"flex",gap:6}}>
-                <Btn onClick={()=>setMicOn(!micOn)} v="ghost" sz="sm">{micOn?"🎙️":"🔇"}</Btn>
-                <Btn onClick={toggleVoice} v="danger" sz="sm">วางสาย</Btn>
-              </div>
-            </div>
-            <div style={{display:"flex",gap:14}}>
-              {[{init:user.init,grad:true,name:"คุณ",sp:true},{init:friend.init,bg:friend.bg,tc:friend.tc,name:friend.name,sp:false}].map((u,i)=>(
-                <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-                  <div style={{padding:2,borderRadius:"50%",border:"2.5px solid "+(u.sp?T.green:T.border)}}>
-                    <Av init={u.init} bg={u.bg} grad={u.grad} tc={u.tc} size={40}/>
-                  </div>
-                  <div style={{fontSize:11,color:T.brand2,fontWeight:700}}>{u.name}</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Chat: ห้องรวม + แชทส่วนตัว ────────────────────────────
+function ChatPage({user,openPeer,onPeerOpened}){
+  const users=useContext(UsersCtx);
+  const myUid=getUid();
+  const [tab,setTab]=useState("group");
+  const [peer,setPeer]=useState(null);
+  const [convs,setConvs]=useState([]);
+  const [search,setSearch]=useState("");
+  useEffect(()=>{ if(openPeer){setTab("dm");setPeer(openPeer);onPeerOpened&&onPeerOpened();} },[openPeer]); // eslint-disable-line
+
+  useEffect(()=>{
+    const q=query(collection(db,"dms"),where("uids","array-contains",myUid));
+    return onSnapshot(q,snap=>setConvs(snap.docs.map(d=>({id:d.id,...d.data()}))),e=>console.error("dms",e));
+  },[myUid]);
+
+  const pairId=uid=>[myUid,uid].sort().join("_");
+  const people=Object.entries(users).filter(([id])=>id!==myUid).map(([id,u])=>({id,...u}))
+    .filter(u=>!search.trim()||String(u.name||"").toLowerCase().includes(search.trim().toLowerCase()));
+  const sortedConvs=[...convs].sort((a,b)=>((b.lastT&&b.lastT.toMillis?b.lastT.toMillis():0)-(a.lastT&&a.lastT.toMillis?a.lastT.toMillis():0)));
+  const memberCount=Object.keys(users).length;
+
+  function onDmSent(txt){
+    if(!peer)return;
+    setDoc(doc(db,"dms",pairId(peer)),{uids:[myUid,peer].sort(),last:txt.slice(0,80),lastFrom:myUid,lastT:serverTimestamp()},{merge:true}).catch(e=>console.error(e));
+  }
+
+  const tabBtn=(k,label)=>(
+    <button key={k} onClick={()=>{setTab(k);}} style={{flex:1,padding:"11px 4px",border:"none",borderBottom:"2px solid "+(tab===k?T.brand:"transparent"),background:"transparent",color:tab===k?T.brand2:T.muted,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"inherit"}}>{label}</button>
+  );
+
+  const pu=peer?(users[peer]||{}):{};
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 112px)",overflow:"hidden"}}>
+      <div style={{display:"flex",background:T.surface,borderBottom:"1px solid "+T.border,flexShrink:0}}>
+        {tabBtn("group","💬 ห้องรวม")}
+        {tabBtn("dm","🔒 ส่วนตัว")}
+      </div>
+
+      {tab==="group"&&(
+        <div style={{display:"flex",flexDirection:"column",flex:1,minHeight:0}}>
+          <div style={{padding:"8px 14px",fontSize:12,color:T.muted,background:T.surface,flexShrink:0,borderBottom:"1px solid "+T.border}}>
+            🌐 ห้องแชทรวมของทุกคนใน Warmly • สมาชิก {memberCount} คน
+          </div>
+          <BubbleChat path={["groupChat"]} user={user} showNames placeholder="คุยกับทุกคน..."/>
+        </div>
+      )}
+
+      {tab==="dm"&&!peer&&(
+        <div style={{flex:1,overflowY:"auto",padding:"12px 14px"}}>
+          <div style={{fontSize:13,fontWeight:700,color:T.sub,marginBottom:8}}>บทสนทนาของฉัน</div>
+          {sortedConvs.length===0&&<div style={{fontSize:13,color:T.muted,padding:"6px 0 14px"}}>ยังไม่มีแชทส่วนตัว — เลือกคนด้านล่างเพื่อเริ่มคุย</div>}
+          {sortedConvs.map(c=>{
+            const other=(c.uids||[]).find(x=>x!==myUid);
+            if(!other)return null;
+            const ou=users[other]||{};
+            return(
+              <div key={c.id} onClick={()=>setPeer(other)} style={{display:"flex",gap:11,alignItems:"center",padding:"10px 6px",borderBottom:"1px solid "+T.border,cursor:"pointer"}}>
+                <Av uid={other} init={ou.init||"??"} bg={T.card} tc={T.brand2} size={42}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:14,fontWeight:700,color:T.text}}>{ou.name||"ผู้ใช้"}</div>
+                  <div style={{fontSize:12,color:T.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.lastFrom===myUid?"คุณ: ":""}{c.last||""}</div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {chatImg&&<div style={{padding:"8px 14px 0",flexShrink:0}}><div style={{position:"relative",display:"inline-block"}}><img src={chatImg} alt="" style={{height:60,borderRadius:10,objectFit:"cover",border:"1px solid "+T.border}}/><button onClick={()=>setChatImg(null)} style={{position:"absolute",top:-4,right:-4,width:18,height:18,borderRadius:"50%",background:"#444",border:"none",color:"#fff",cursor:"pointer",fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>✕</button></div></div>}
-        <div style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:8}}>
-          {msgs.map(m=>{
-            if(m.from==="system")return<div key={m.id} style={{textAlign:"center",fontSize:12,color:T.muted,padding:"3px 0"}}>{m.text}</div>;
-            const me=m.from==="me";
-            return(<div key={m.id} style={{display:"flex",gap:8,alignItems:"flex-end",flexDirection:me?"row-reverse":"row"}}>
-              {!me&&<Av init={friend.init} bg={friend.bg} tc={friend.tc} size={28}/>}
-              <div style={{maxWidth:"72%"}}>
-                {m.type==="image"?<img src={m.src} alt="" style={{maxWidth:"100%",borderRadius:14,display:"block",border:"1px solid "+T.border}}/>
-                :<div style={{padding:"9px 14px",borderRadius:16,fontSize:14,lineHeight:1.55,background:me?T.brandGrad:T.card,color:me?"#fff":T.text,border:me?"none":"1px solid "+T.border,borderBottomLeftRadius:!me?4:16,borderBottomRightRadius:me?4:16,boxShadow:me?"0 2px 12px rgba(124,92,252,.3)":"none"}}>{m.text}</div>}
               </div>
-            </div>);
+            );
           })}
-          <div ref={endRef}/>
+          <div style={{fontSize:13,fontWeight:700,color:T.sub,margin:"16px 0 8px"}}>เริ่มแชทกับ...</div>
+          <Input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ค้นหาชื่อ..." style={{marginBottom:8}}/>
+          {people.length===0&&<div style={{fontSize:13,color:T.muted,padding:"10px 0"}}>ยังไม่มีผู้ใช้คนอื่น — ชวนเพื่อนเข้ามาได้เลย 💜</div>}
+          {people.map(u=>(
+            <div key={u.id} onClick={()=>setPeer(u.id)} style={{display:"flex",gap:11,alignItems:"center",padding:"9px 6px",borderBottom:"1px solid "+T.border,cursor:"pointer"}}>
+              <Av uid={u.id} init={u.init||"??"} bg={T.card} tc={T.brand2} size={38}/>
+              <div style={{flex:1,fontSize:14,fontWeight:600,color:T.text}}>{u.name||"ผู้ใช้"}{u.isGuest&&<span style={{fontSize:10,marginLeft:6,background:"rgba(245,158,11,.15)",color:T.yellow,borderRadius:20,padding:"1px 7px",fontWeight:700}}>Guest</span>}</div>
+              <span style={{fontSize:12,color:T.brand2}}>💬</span>
+            </div>
+          ))}
         </div>
-        <div style={{padding:"10px 14px",borderTop:"1px solid "+T.border,background:T.surface,flexShrink:0}}>
-          <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>setChatImg(ev.target.result);r.readAsDataURL(f);e.target.value="";}}/>
-          <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            <button onClick={()=>fileRef.current.click()} style={{width:36,height:36,borderRadius:"50%",border:"1px solid "+T.border,background:T.card,cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontFamily:"inherit"}}>📷</button>
-            <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")send();}} placeholder="พิมพ์ข้อความ..."
-              style={{flex:1,border:"1px solid "+T.border,borderRadius:20,padding:"9px 16px",fontSize:14,color:T.text,background:T.card,outline:"none",fontFamily:"inherit"}}
-              onFocus={e=>e.target.style.borderColor=T.borderHi} onBlur={e=>e.target.style.borderColor=T.border}/>
-            <button onClick={send} style={{width:38,height:38,borderRadius:"50%",background:T.brandGrad,border:"none",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff",flexShrink:0,fontSize:17,boxShadow:"0 2px 10px rgba(124,92,252,.4)",fontFamily:"inherit"}}>↑</button>
+      )}
+
+      {tab==="dm"&&peer&&(
+        <div style={{display:"flex",flexDirection:"column",flex:1,minHeight:0}}>
+          <div style={{padding:"8px 12px",display:"flex",alignItems:"center",gap:10,background:T.surface,borderBottom:"1px solid "+T.border,flexShrink:0}}>
+            <button onClick={()=>setPeer(null)} style={{border:"none",background:"transparent",color:T.sub,fontSize:20,cursor:"pointer",padding:"0 6px",fontFamily:"inherit"}}>‹</button>
+            <Av uid={peer} init={pu.init||"??"} bg={T.card} tc={T.brand2} size={34}/>
+            <div style={{fontSize:14,fontWeight:700,color:T.text}}>{pu.name||"ผู้ใช้"}</div>
           </div>
+          <BubbleChat path={["dms",pairId(peer),"messages"]} user={user} placeholder={"ข้อความถึง "+(pu.name||"เพื่อน")+"..."} onSent={onDmSent}/>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -1038,7 +1239,7 @@ function ProfilePage({user,posts,onUpdateName}){
   const [mood,setMood]=useState(()=>ls.get("mood","สบายดี 😊"));
   const [editing,setEditing]=useState(false);
   const [bioInput,setBioInput]=useState(bio);
-  const [displayName,setDisplayName]=useState(()=>ls.get("displayName",user.name));
+  const [displayName,setDisplayName]=useState(user.name);
   const [editName,setEditName]=useState(false);
   const [nameInput,setNameInput]=useState(displayName);
   const saveName=()=>{
@@ -1056,11 +1257,11 @@ function ProfilePage({user,posts,onUpdateName}){
   const [coverImg,setCoverImg]=useState(()=>ls.get("coverImg",""));
   const [avatarImg,setAvatarImg]=useState(()=>ls.get("avatarImg",""));
   const coverRef=useRef();const avatarRef=useRef();
-  const myPosts=posts.filter(p=>p.author===user.name||p.author===displayName);
-  const saveBio=()=>{setBio(bioInput);ls.set("bio",bioInput);setEditing(false);};
-  const saveMood=m=>{setMood(m);ls.set("mood",m);setShowMP(false);};
-  const saveCover=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{setCoverImg(ev.target.result);ls.set("coverImg",ev.target.result);};r.readAsDataURL(f);e.target.value="";};
-  const saveAvatar=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{setAvatarImg(ev.target.result);ls.set("avatarImg",ev.target.result);};r.readAsDataURL(f);e.target.value="";};
+  const myPosts=posts.filter(p=>p.authorUid?p.authorUid===getUid():(p.author===user.name||p.author===displayName));
+  const saveBio=()=>{setBio(bioInput);ls.set("bio",bioInput);saveMyProfile({bio:bioInput}).catch(()=>{});setEditing(false);};
+  const saveMood=m=>{setMood(m);ls.set("mood",m);saveMyProfile({mood:m}).catch(()=>{});setShowMP(false);};
+  const saveCover=e=>{const f=e.target.files[0];e.target.value="";if(!f)return;compressImage(f,900,0.6).then(src=>{setCoverImg(src);ls.set("coverImg",src);return setDoc(doc(db,"covers",getUid()),{cover:src,lastSeen:serverTimestamp()});}).catch(err=>console.error("cover",err));};
+  const saveAvatar=e=>{const f=e.target.files[0];e.target.value="";if(!f)return;compressImage(f,160,0.72).then(src=>{setAvatarImg(src);ls.set("avatarImg",src);return saveMyProfile({avatar:src});}).catch(err=>console.error("avatar",err));};
   return(
     <div>
       <Card style={{marginBottom:14,overflow:"hidden"}}>
@@ -1082,6 +1283,7 @@ function ProfilePage({user,posts,onUpdateName}){
                   :<div style={{fontSize:19,fontWeight:800,color:T.text,display:"flex",alignItems:"center",gap:8}}>{displayName}{!user.isGuest&&<span onClick={()=>{setEditName(true);setNameInput(displayName);}} style={{fontSize:13,cursor:"pointer",color:T.muted}}>✏️</span>}</div>
                 }
                 {user.isGuest&&<span style={{fontSize:11,background:"rgba(245,158,11,.15)",color:T.yellow,borderRadius:20,padding:"2px 8px",fontWeight:600}}>👋 Guest</span>}
+                {!user.isGuest&&user.email&&<div style={{fontSize:12,color:T.muted,marginTop:3}}>🔗 เชื่อมกับ {user.email}</div>}
                 {editing?<div style={{marginTop:7,display:"flex",gap:7}}><Input value={bioInput} onChange={e=>setBioInput(e.target.value)} style={{width:220,padding:"6px 11px",fontSize:13}}/><Btn onClick={saveBio} v="primary" sz="sm">บันทึก</Btn></div>
                 :<div style={{fontSize:13,color:T.sub,marginTop:5,lineHeight:1.6}}>{bio}</div>}
                 <div style={{marginTop:9}}>
@@ -1123,6 +1325,86 @@ function ProfilePage({user,posts,onUpdateName}){
   );
 }
 
+// ── ตั้งชื่อครั้งแรกหลังล็อกอิน Google ───────────────────
+function NamePrompt({user,onDone}){
+  const [name,setName]=useState(user.name||"");
+  const [err,setErr]=useState("");
+  const [busy,setBusy]=useState(false);
+  async function ok(){
+    const n=name.trim().slice(0,30);
+    if(!n){setErr("ใส่ชื่อก่อนนะ");return;}
+    setBusy(true);
+    const init=n.slice(0,2).toUpperCase();
+    try{
+      await saveMyProfile({name:n,init,isGuest:false,photo:user.photo||"",nameSet:true});
+      onDone({...user,name:n,init,needName:false});
+    }catch(e){
+      console.error(e);
+      setErr("บันทึกไม่ได้ ("+(e.code||e.message)+")");
+      setBusy(false);
+    }
+  }
+  return(
+    <div style={{minHeight:"100dvh",background:T.bg,display:"flex",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"}}>
+      <div style={{width:"100%",maxWidth:360,background:T.surface,border:"1px solid "+T.borderHi,borderRadius:20,padding:"26px 22px",textAlign:"center"}}>
+        <div style={{fontSize:34,marginBottom:8}}>👋</div>
+        <div style={{fontSize:18,fontWeight:800,color:T.text}}>ตั้งชื่อที่ใช้แสดง</div>
+        <div style={{fontSize:13,color:T.sub,marginTop:8,lineHeight:1.6}}>โปรไฟล์ของคุณผูกกับบัญชี<br/><b style={{color:T.brand2}}>{user.email}</b><br/>ส่วนชื่อที่คนอื่นเห็น ตั้งเองได้ (แก้ภายหลังได้)</div>
+        <div style={{marginTop:16}}>
+          <Input value={name} onChange={e=>{setName(e.target.value);setErr("");}} placeholder="ชื่อที่ต้องการแสดง..." onKeyDown={e=>e.key==="Enter"&&ok()}/>
+        </div>
+        {err&&<div style={{fontSize:12,color:T.red,marginTop:8}}>{err}</div>}
+        <div style={{marginTop:14}}><Btn onClick={ok} v="primary" sz="md" full>{busy?"กำลังบันทึก...":"ตกลง ✨"}</Btn></div>
+      </div>
+    </div>
+  );
+}
+
+// ── ดูโปรไฟล์คนอื่น (รูปปก รูปโปรไฟล์ โพสต์) ───────────────
+function ProfileModal({uid,posts,user,onClose,onChat}){
+  const users=useContext(UsersCtx);
+  const u=users[uid]||{};
+  const [cover,setCover]=useState("");
+  useEffect(()=>{
+    setCover("");
+    getDoc(doc(db,"covers",uid)).then(sn=>{if(sn.exists())setCover(sn.data().cover||"");}).catch(()=>{});
+  },[uid]);
+  const list=posts.filter(p=>p.authorUid===uid&&(p.privacy||"public")==="public");
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",zIndex:60,display:"flex",alignItems:"flex-start",justifyContent:"center",overflowY:"auto",padding:"20px 12px"}}>
+      <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:440,background:T.card,border:"1px solid "+T.borderHi,borderRadius:20,overflow:"hidden"}}>
+        <div style={{height:120,background:cover?`url(${cover}) center/cover`:T.brandGrad,position:"relative"}}>
+          <button onClick={onClose} style={{position:"absolute",top:10,right:10,width:30,height:30,borderRadius:"50%",border:"none",background:"rgba(0,0,0,.5)",color:"#fff",cursor:"pointer",fontSize:14,fontFamily:"inherit"}}>✕</button>
+        </div>
+        <div style={{padding:"0 18px 18px",position:"relative"}}>
+          <div style={{position:"absolute",top:-34,left:18,border:"4px solid "+T.card,borderRadius:"50%",background:T.card}}>
+            <Av uid={uid} init={u.init||"??"} bg={T.surface} tc={T.brand2} size={64}/>
+          </div>
+          <div style={{paddingTop:40}}>
+            <div style={{fontSize:19,fontWeight:800,color:T.text}}>{u.name||"ผู้ใช้"}
+              {u.isGuest&&<span style={{fontSize:11,marginLeft:8,background:"rgba(245,158,11,.15)",color:T.yellow,borderRadius:20,padding:"2px 8px",fontWeight:600}}>👋 Guest</span>}
+            </div>
+            <div style={{fontSize:13,color:T.sub,marginTop:5,lineHeight:1.6}}>{u.bio||"ชอบคุยเล่น • ฟังเพื่อนใหม่ 💜"}</div>
+            {u.mood&&<div style={{marginTop:8}}><span style={{background:T.brand+"22",color:T.brand2,borderRadius:20,padding:"4px 12px",fontSize:12,fontWeight:700,border:"1px solid "+T.borderHi}}>✦ {u.mood}</span></div>}
+            {uid!==getUid()&&<div style={{marginTop:14}}><Btn onClick={()=>onChat(uid)} v="primary" sz="sm">💬 แชทส่วนตัว</Btn></div>}
+          </div>
+          <div style={{marginTop:16,paddingTop:12,borderTop:"1px solid "+T.border}}>
+            <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:10}}>โพสต์ ({list.length})</div>
+            {list.length===0&&<div style={{fontSize:13,color:T.muted,textAlign:"center",padding:"10px 0"}}>ยังไม่มีโพสต์สาธารณะ</div>}
+            {list.map(pp=>(
+              <div key={pp.id} style={{borderBottom:"1px solid "+T.border,paddingBottom:10,marginBottom:10}}>
+                {pp.images?.length>0&&<div style={{display:"flex",gap:5,marginBottom:6,flexWrap:"wrap"}}>{pp.images.slice(0,4).map((src,i)=>(pp.mediaTypes&&pp.mediaTypes[i]==="video")?null:<img key={i} src={src} alt="" style={{width:56,height:56,borderRadius:10,objectFit:"cover",border:"1px solid "+T.border}}/>)}</div>}
+                {pp.content&&<div style={{fontSize:13,color:T.sub,lineHeight:1.6}}>{pp.content}</div>}
+                <div style={{fontSize:11,color:T.muted,marginTop:4}}>{pp.createdAt?timeAgo(pp.createdAt):"เมื่อกี้"} • ❤️{pp.likes||0}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Privacy ───────────────────────────────────────────────
 function PrivacyPage(){
   const [s,setS]=useState({postDef:"public",whoSee:"public",whoCmt:"everyone",whoMsg:"everyone",showMood:true,showOnline:true,showLast:true,friendList:"friends"});
@@ -1154,32 +1436,86 @@ function PrivacyPage(){
 const TABS=[{key:"feed",icon:"🏠",label:"ฟีด"},{key:"chat",icon:"💬",label:"แชท"},{key:"voice",icon:"🎙️",label:"เสียง"},{key:"profile",icon:"👤",label:"โปรไฟล์"},{key:"privacy",icon:"🔒",label:"ส่วนตัว"}];
 
 export default function App(){
-  const [user,setUser]=useState(()=>ls.get("user",null));
+  const [user,setUser]=useState(null);
+  const [authReady,setAuthReady]=useState(false);
   const [page,setPage]=useState("feed");
   const [posts,setPosts]=useState([]);
+  const [users,setUsers]=useState({});
+  const [viewUid,setViewUid]=useState(null);
+  const [dmTarget,setDmTarget]=useState(null);
+
+  // ติดตามสถานะล็อกอิน Google จริง (Firebase Auth) + ผู้เยี่ยมชม
+  useEffect(()=>{
+    return onAuthStateChanged(auth,async fb=>{
+      if(fb){
+        ls.set("uid",fb.uid);
+        let saved={};
+        try{const sn=await getDoc(doc(db,"users",fb.uid));if(sn.exists())saved=sn.data();}catch(e){console.error("load profile",e);}
+        const name=(saved.name&&String(saved.name).trim())||fb.displayName||(fb.email?fb.email.split("@")[0]:"ผู้ใช้");
+        let cv="";
+        try{const cs=await getDoc(doc(db,"covers",fb.uid));if(cs.exists())cv=cs.data().cover||"";}catch(e){}
+        ls.set("coverImg",cv);
+        ls.set("avatarImg",saved.avatar||"");
+        ls.set("bio",saved.bio||"ชอบคุยเล่น • ฟังเพื่อนใหม่ 💜");
+        ls.set("mood",saved.mood||"สบายดี 😊");
+        const u={name,email:fb.email||"",isGuest:false,init:name.slice(0,2).toUpperCase(),provider:"google",uid:fb.uid,photo:fb.photoURL||"",needName:!saved.nameSet};
+        ls.set("user",u);
+        setUser(u);
+      }else{
+        const l=ls.get("user",null);
+        setUser(l&&l.isGuest?l:null);
+      }
+      setAuthReady(true);
+    });
+  },[]);
+
+  // บันทึกโปรไฟล์สาธารณะ (ชื่อ/รูป) ให้คนอื่นเห็น
+  useEffect(()=>{
+    if(!user||user.needName)return;
+    saveMyProfile({name:user.name,init:user.init,isGuest:!!user.isGuest,photo:user.photo||""}).catch(e=>console.error("saveProfile",e));
+  },[user&&user.name,user&&user.isGuest,user&&user.needName]); // eslint-disable-line
+
+  useEffect(()=>{
+    if(!user)return;
+    return onSnapshot(collection(db,"users"),snap=>{
+      const m={};snap.docs.forEach(d=>{m[d.id]=d.data();});setUsers(m);
+    },e=>console.error("users",e));
+  },[user&&user.name]); // eslint-disable-line
 
   useEffect(()=>{
     if(!user)return;
     const q=query(collection(db,"posts"),orderBy("createdAt","desc"));
     const unsub=onSnapshot(q,snap=>{setPosts(snap.docs.map(d=>({id:d.id,...d.data()})));});
     return unsub;
-  },[user]);
+  },[user&&user.name]); // eslint-disable-line
 
   async function handleLogout(){
+    const uid=getUid();
+    const wasGoogle=user&&!user.isGuest;
     // ปิดห้องที่ตัวเองเป็น host
     try {
-      const snap = await import("firebase/firestore").then(m=>m.getDocs(m.query(m.collection(db,"voiceRooms"))));
-      const myRooms = snap.docs.filter(d=>d.data().hostInit===user.init);
-      for(const r of myRooms){ await import("firebase/firestore").then(m=>m.deleteDoc(m.doc(db,"voiceRooms",r.id))); }
+      const snap = await getDocs(collection(db,"voiceRooms"));
+      const myRooms = snap.docs.filter(d=>{const x=d.data();return x.hostUid?x.hostUid===uid:x.hostInit===user.init;});
+      for(const r of myRooms){ await deleteDoc(doc(db,"voiceRooms",r.id)); }
     } catch(e){}
-    ls.del("user"); setUser(null);
+    ls.del("user");
+    if(wasGoogle){
+      ["uid","avatarImg","bio","mood","coverImg"].forEach(k=>ls.del(k));
+      try{await signOut(auth);}catch(e){}
+    }
+    setUser(null);setPage("feed");
   }
 
+  if(!authReady)return<div style={{minHeight:"100dvh",background:T.bg,color:T.sub,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"sans-serif"}}>💜 กำลังโหลด...</div>;
   if(!user)return<AuthPage onLogin={setUser}/>;
+  if(user.needName)return<NamePrompt user={user} onDone={u=>{ls.set("user",u);setUser(u);}}/>;
+  const openProfile=uid=>{ if(!uid)return; if(uid===getUid()){setPage("profile");return;} setViewUid(uid); };
 
   return(
+    <UsersCtx.Provider value={users}>
+    <ProfileCtx.Provider value={openProfile}>
     <div style={{fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",minHeight:"100dvh",background:T.bg,display:"flex",flexDirection:"column",maxWidth:480,margin:"0 auto"}}>
-      <style>{`*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{background:${T.bg};margin:0}::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:${T.border};border-radius:3px}input,textarea,select{color-scheme:dark}@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}`}</style>
+      <style>{`*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{background:${T.bg};margin:0}::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:${T.border};border-radius:3px}input,textarea,select{color-scheme:dark}@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}@keyframes mic-wave{0%{height:3px}100%{height:14px}}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}`}</style>
       <div style={{background:T.glass,backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderBottom:"1px solid "+T.border,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:30}}>
         <div style={{display:"flex",alignItems:"center",gap:9}}>
           <div style={{width:30,height:30,borderRadius:9,background:T.brandGrad,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>💜</div>
@@ -1194,8 +1530,8 @@ export default function App(){
       <div style={{flex:1,overflowY:page==="chat"?"hidden":"auto",display:"flex",flexDirection:"column"}}>
         <div style={{flex:1,padding:page==="chat"?"0":"14px 12px 80px"}}>
           {page==="feed"    &&<FeedPage user={user}/>}
-          {page==="chat"    &&<ChatPage user={user}/>}
-          {page==="voice"   &&<VoiceErrorBoundary><VoiceRoomsPage user={user}/></VoiceErrorBoundary>}
+          {page==="chat"    &&<ChatPage user={user} openPeer={dmTarget} onPeerOpened={()=>setDmTarget(null)}/>}
+          <div style={{display:page==="voice"?"block":"none"}}><VoiceErrorBoundary><VoiceRoomsPage user={user}/></VoiceErrorBoundary></div>
           {page==="profile" &&<ProfilePage user={user} posts={posts} onUpdateName={n=>{const u={...user,name:n,init:n.slice(0,2).toUpperCase()};ls.set("user",u);setUser(u);}}/>}
           {page==="privacy" &&<PrivacyPage/>}
         </div>
@@ -1209,6 +1545,9 @@ export default function App(){
           </button>
         ))}
       </div>
+    {viewUid&&<ProfileModal uid={viewUid} posts={posts} user={user} onClose={()=>setViewUid(null)} onChat={id=>{setViewUid(null);setDmTarget(id);setPage("chat");}}/>}
     </div>
+    </ProfileCtx.Provider>
+    </UsersCtx.Provider>
   );
 }
